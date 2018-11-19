@@ -1,0 +1,19 @@
+{
+  "name": "wm-redis-message",
+  "version": "0.0.1",
+  "description": "",
+  "main": "index.js",
+  "directories": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:mapleincode/redis-message.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "debug": "^4.1.0"
+  }
+}
