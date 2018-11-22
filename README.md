@@ -39,6 +39,40 @@ console.log(await cache.getMessages(10));
 | lockExpireTime       | 锁超时时间，单位 s              | 60      |
 
 ```js
+const {
+    topic, // topic
+    messageType, // messageType
+    redis, // redis
+    keyHeader = 'msg_', // redis key header
+    maxAckTimeout = 60 * 1000, // 消费超时时间 
+    eachMessageCount = 200, // 每次 Message 获取数量
+    minRedisMessageCount = 200, // Redis 最少的 count 数量
+    maxRetryTimes = 5, // 消息消费失败重新消费次数
+    lockExpireTime = 60, // Lock timeout
 
+    fetchMessage = function (options) {
+        // const { topic, messageType } = options;
+        return async function () {
+            return [];
+        }
+    },
+    afterFetchMessage = function (options) {
+        // const { topic, messageType } = options;
+        return async function (data = {}) {
+            const {
+                offset
+            } = data;
+            debug(`message has been offset to :${offset}`);
+        }
+    },
+    dealfailedMessage = function (options) {
+        // const { topic, messageType } = options;
+        return async function (messageId, detail) {
+            debug(`messageId: ${messageId} has been error acks`);
+            console.log(`message failed!! id: ${messageId} data: ${JSON.stringify(detail)}`);
+            return;
+        }
+    }
+} = options;
 ```
 
