@@ -117,6 +117,44 @@ describe('redis method', function() {
         delete _redis.expire;
     });
 
+    it('message count', async function() {
+        _redis.llen = await function(mqName) {
+            return mqName;
+        };
+
+        const len = await redis.messageCount();
+        len.should.equal(redis.MQ_NAME);
+        
+        delete _redis.llen;
+    });
+
+    it('set pull lock', async function() {
+        let expireTime = null;
+        let expireKey = null;
+        redis._expire = async function(key, time) {
+            expireKey = key;
+            expireTime = time;
+        };
+        let lockKey = null;
+        _redis.incr = function(key) {
+            lockKey = key;
+            return 2;
+        }
+
+        let lock = await redis.setPullLock();
+
+        should(expireTime).be.Null;
+        should(expireKey).be.Null;
+        lockKey.should.be.equal(redis.LOCK_PULL_KEY);
+        lock.should.be.False;
+
+        _redis.incr = function(key) {
+
+        }
+
+
+    });
+
     it('get message id', function() {
 
     });
