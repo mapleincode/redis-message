@@ -149,13 +149,65 @@ describe('redis method', function() {
         lock.should.be.False;
 
         _redis.incr = function(key) {
-
+            lockKey = key;
+            return 1;
         }
 
+        lock = await redis.setPullLock();
+        should(expireTime).not.be.Null;
+        should(expireKey).not.be.Null;
+        lock.should.be.True;
+
+        delete _redis.incr;
+    });
+
+    it('clean pull lock', async function() {
+        _redis.del = async function(key) {
+            return key;
+        };
+
+        const delKey = await redis.cleanPullLock();
+        delKey.should.equal(redis.LOCK_PULL_KEY);
+    });
+
+    it('set check lock', async function() {
+        let expireTime = null;
+        let expireKey = null;
+        redis._expire = async function(key, time) {
+            expireKey = key;
+            expireTime = time;
+        };
+        let lockKey = null;
+        _redis.incr = function(key) {
+            lockKey = key;
+            return 2;
+        }
+
+        let lock = await redis.setCheckLock();
+
+        should(expireTime).be.Null;
+        should(expireKey).be.Null;
+        lockKey.should.be.equal(redis.LOCK_CHECK_KEY);
+        lock.should.be.False;
+
+        _redis.incr = function(key) {
+            lockKey = key;
+            return 1;
+        }
+
+        lock = await redis.setCheckLock();
+        should(expireTime).not.be.Null;
+        should(expireKey).not.be.Null;
+        lock.should.be.True;
 
     });
 
-    it('get message id', function() {
+    it('clean check lock', async function() {
+        _redis.del = async function(key) {
+            return key;
+        };
 
+        const delKey = await redis.cleanCheckLock();
+        delKey.should.equal(redis.LOCK_CHECK_KEY);
     });
 });
