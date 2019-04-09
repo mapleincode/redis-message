@@ -237,7 +237,37 @@ describe('redis message', function() {
         msgLength.should.equal(0);
     });
 
-    it('ack message timeout', function() {
+    it('ack message timeout', async function() {
+        // 超时没法测试啊!
+    });
 
+    it('ack message multi with not fetch message', async function() {
+        fetchMessageLengthLimit = 1;
+        const datas = await redisMessage.getMessages(1);
+        const data = datas[0];
+        const messageId = data.messageId;
+        let time = 10;
+        while(time --) {
+            await redisMessage.ackMessages(messageId, false);
+            const msgLength = await redis.messageCount();
+            msgLength.should.equal(1);
+        }
+    });
+
+    it('ack message multi failed', async function() {
+        this.timeout(3000);
+        fetchMessageLengthLimit = 1;
+        const datas = await redisMessage.getMessages(1);
+        const data = datas[0];
+        const messageId = data.messageId;
+        let time = 6;
+        while(time --) {
+            if (time !== 5) {
+                await redisMessage.getMessages(1);
+            }
+            await redisMessage.ackMessages(messageId, false);
+            const msgLength = await redis.messageCount();
+            msgLength.should.equal(time === 0 ? 0 : 1);
+        }
     });
 });
