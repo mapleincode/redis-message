@@ -78,14 +78,14 @@ describe('redis message', function() {
         const msgs = await redisMessage.fetchMessage();
         msgs.length.should.equal(5);
         const msg = msgs[0];
-        msg.should.be.Object;
+        msg.should.be.an.Object();
         msg.should.have.keys('id', 'data', 'msgType');
     });
 
     it('pull message basic', async function() {
         fetchMessageLengthLimit = 5;
         await redisMessage._pull();
-        afterFetchMessageData.should.be.Object;
+        afterFetchMessageData.should.be.an.Object();
         afterFetchMessageData.should.deepEqual({ offset: 5, noChange: false });
         const msgLength = await redis.messageCount();
         msgLength.should.equal(5);
@@ -93,7 +93,7 @@ describe('redis message', function() {
 
     it('pull message basic with no message', async function() {
         await redisMessage._pull();
-        afterFetchMessageData.should.be.Object;
+        afterFetchMessageData.should.be.an.Object();
         afterFetchMessageData.should.deepEqual({ offset: undefined, noChange: true });
         const msgLength = await redis.messageCount();
         msgLength.should.equal(0);
@@ -138,7 +138,7 @@ describe('redis message', function() {
 
         data = await redisMessage.getOneMessage();
 
-        data.should.be.Object;
+        data.should.be.an.Object();
         data.should.deepEqual({
             data: {
                 name: 'Bob'
@@ -151,10 +151,10 @@ describe('redis message', function() {
     it('fetch multi message', async function() {
         fetchMessageLengthLimit = 10;
         const datas = await redisMessage.getMessages(5);
-        datas.should.be.Array;
+        datas.should.be.an.Array();
         datas.length.should.equal(5);
         const data = datas[0];
-        data.should.be.Object;
+        data.should.be.an.Object();
         data.should.deepEqual({
             data: {
                 name: 'Bob'
@@ -166,17 +166,17 @@ describe('redis message', function() {
 
     it('fetch no message', async function() {
         const datas = await redisMessage.getMessages(5);
-        datas.should.be.Array;
+        datas.should.be.an.Array();
         datas.length.should.equal(0);
     });
 
     it('ack success message', async function() {
         fetchMessageLengthLimit = 10;
         const datas = await redisMessage.getMessages(1);
-        datas.should.be.Array;
+        datas.should.be.an.Array();
         datas.length.should.equal(1);
         const data = datas[0];
-        data.should.be.Object;
+        data.should.be.an.Object();
         data.should.deepEqual({
             data: {
                 name: 'Bob'
@@ -197,10 +197,10 @@ describe('redis message', function() {
     it('ack failed message', async function() {
         fetchMessageLengthLimit = 1;
         const datas = await redisMessage.getMessages(1);
-        datas.should.be.Array;
+        datas.should.be.an.Array();
         datas.length.should.equal(1);
         const data = datas[0];
-        data.should.be.Object;
+        data.should.be.an.Object();
         data.should.deepEqual({
             data: {
                 name: 'Bob'
@@ -227,7 +227,7 @@ describe('redis message', function() {
     it('ack multi message', async function() {
         fetchMessageLengthLimit = 10;
         const datas = await redisMessage.getMessages(10);
-        datas.should.be.Array;
+        datas.should.be.an.Array();
         datas.length.should.equal(10);
 
         const ids = datas.map(d => d.messageId);
@@ -269,5 +269,38 @@ describe('redis message', function() {
             const msgLength = await redis.messageCount();
             msgLength.should.equal(time === 0 ? 0 : 1);
         }
+    });
+
+    it('message unconsumed', async function() {
+        fetchMessageLengthLimit = 2;
+        await redisMessage.pullMessage(0);
+
+        const result = await redisMessage.__messageUnconsumed();
+        result.should.be.an.Object();
+        result.should.have.keys('itemsLength', 'items');
+
+        const { itemsLength, items } = result;
+        itemsLength.should.equal(2);
+        items.should.be.an.Array();
+        items.should.have.length(2);
+    });
+
+    it('message consuming', async function() {
+        fetchMessageLengthLimit = 4;
+        await redisMessage.pullMessage(0);
+        await redisMessage.getMessages(2);
+
+        const result = await redisMessage.__messageUnconsumed();
+        result.should.be.an.Object();
+        result.should.have.keys('itemsLength', 'items');
+
+        const { itemsLength, items } = result;
+        itemsLength.should.equal(2);
+        items.should.be.an.Array();
+        items.should.have.length(2);
+
+        const map = await redisMessage.__messageConsuming();
+        map.should.be.an.Object();
+        map.should.have.size(4);
     });
 });
