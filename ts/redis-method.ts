@@ -173,7 +173,7 @@ export default class RedisMethod {
     }
 
     async initTime(messageId: string) {
-        return await this.redis.hset(this.MQ_HASH_NAME, messageId, null);
+        return await this.redis.hset(this.MQ_HASH_NAME, messageId, '');
     }
 
     getMessageId(id: number) {
@@ -297,7 +297,7 @@ export default class RedisMethod {
     }
 
     async initTimeAndRpush(messageId: string) {
-        await this.redis.hset(this.MQ_HASH_NAME, messageId, null);
+        await this.redis.hset(this.MQ_HASH_NAME, messageId, '');
         await this.redis.rpush(this.MQ_NAME, messageId);
     }
 }
