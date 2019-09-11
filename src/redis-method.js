@@ -17,11 +17,11 @@ class RedisMethod {
         this.topic = topic;
         this.keyHeader = keyHeader || 'msg_';
         this.lockExpireTime = lockExpireTime || 60;
-        this.MQ_NAME = `${keyHeader}-${topic}-redis-mq`;
-        this.MQ_HASH_NAME = `${keyHeader}-${topic}-redis-hash`;
-        this.MQ_HASH_RETRY_TIMES = `${keyHeader}-${topic}-redis-retry-hash`;
-        this.LOCK_PULL_KEY = `${keyHeader}-${topic}-pull-lock`;
-        this.LOCK_CHECK_KEY = `${keyHeader}-${topic}-check-lock`;
+        this.MQ_NAME = `${this.keyHeader}-${topic}-redis-mq`;
+        this.MQ_HASH_NAME = `${this.keyHeader}-${topic}-redis-hash`;
+        this.MQ_HASH_RETRY_TIMES = `${this.keyHeader}-${topic}-redis-retry-hash`;
+        this.LOCK_PULL_KEY = `${this.keyHeader}-${topic}-pull-lock`;
+        this.LOCK_CHECK_KEY = `${this.keyHeader}-${topic}-check-lock`;
     }
     packMessage(data, msgType) {
         if (typeof data === 'string') {
@@ -231,7 +231,7 @@ class RedisMethod {
             const key = `${this.keyHeader}-${messageId}`;
             yield this.redis.multi([
                 ['set', key, str],
-                ['hset', this.MQ_HASH_NAME, messageId],
+                ['hset', this.MQ_HASH_NAME, messageId, ''],
                 ['rpush', this.MQ_NAME, messageId]
             ]).exec();
         });

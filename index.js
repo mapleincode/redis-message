@@ -1,5 +1,5 @@
 'use strict';
 
 module.exports = {
-    RedisMessage: require('./lib/redis-message.js')
+    RedisMessage: require('./src/redis-message.js')
 };

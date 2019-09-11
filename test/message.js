@@ -213,10 +213,12 @@ describe('redis message', function () {
 
         const b = await redis.checkTimeExists(messageId);
         b.should.equal(1);
+        
         const detail = await redis.getDetail(messageId);
         should(detail).be.Object;
 
         const msgLength = await redis.messageCount();
+
         msgLength.should.equal(1);
 
         const failedTimes = await redis.incrFailedTimes(messageId);

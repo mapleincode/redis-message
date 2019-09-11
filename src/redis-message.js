@@ -111,7 +111,7 @@ class RedisMessage {
         this.afterFetchMessage = this.options.afterFetchMessage;
         this.handleFailedMessage = this.options.handleFailedMessage;
         // ioredis 实例
-        this.redis = new redis_method_1.default(this.options.redis, options);
+        this.redis = new redis_method_1.default(this.options.redis, this.options);
         // logger
         this.logger = this.options.logger;
     }
@@ -145,7 +145,7 @@ class RedisMessage {
     _pullMessage() {
         return __awaiter(this, void 0, void 0, function* () {
             const list = yield this.fetchMessage();
-            let offset = 0;
+            let offset;
             try {
                 for (const msg of list) {
                     const { id, // 唯一 id
@@ -254,7 +254,10 @@ class RedisMessage {
                 if (!_messageId && typeof messageId === 'string') {
                     _messageId = messageId;
                 }
-                _success = _success || success || true;
+                _success = _success || success;
+                if (_success === undefined) {
+                    _success = true;
+                }
                 if (!_messageId) {
                     continue;
                 }

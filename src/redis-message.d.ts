@@ -14,7 +14,7 @@ declare type fetchMessageFunc = {
 };
 declare type afterFetchMessageFunc = {
     (data: {
-        offset: number;
+        offset: number | undefined;
         noChange: boolean;
     }): Promise<void>;
 };

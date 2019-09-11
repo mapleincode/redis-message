@@ -32,7 +32,7 @@ type fetchMessageFunc = {
 }
 
 type afterFetchMessageFunc = {
-    (data: { offset: number, noChange: boolean }): Promise<void>;
+    (data: { offset: number|undefined, noChange: boolean }): Promise<void>;
 }
 
 type handleFailedMessageFunc = {
@@ -196,7 +196,7 @@ export default class RedisMessage {
         this.handleFailedMessage = this.options.handleFailedMessage;
 
         // ioredis 实例
-        this.redis = new RedisMethod(this.options.redis, options);
+        this.redis = new RedisMethod(this.options.redis, this.options);
 
         // logger
         this.logger = this.options.logger;
@@ -232,7 +232,7 @@ export default class RedisMessage {
     async _pullMessage() {
         const list = await this.fetchMessage();
 
-        let offset: number = 0;
+        let offset: number|undefined;
 
         try {
             for (const msg of list) {
@@ -343,7 +343,11 @@ export default class RedisMessage {
                 _messageId = messageId;
             }
 
-            _success = _success || success || true;
+            _success = _success || success;
+
+            if (_success === undefined) {
+                _success = true;
+            }
 
             if (!_messageId) {
                 continue;
