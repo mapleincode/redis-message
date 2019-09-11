@@ -4,14 +4,97 @@
  */
 'use strict';
 
-const RedisMethod = require('./redis-method');
-const sleep = require('./utils').sleep;
-const now = require('./utils').now;
-const defaultLogger = require('./logger');
-const debug = require('debug')('redis-message');
+import RedisMethod, { RedisMethodOptions, messageData } from './redis-method';
+import { now, sleep } from './utils';
+import defaultLogger from './logger';
+import Debug from 'debug';
+import { Redis } from 'ioredis';
 
-class RedisMessage {
-    constructor(options) {
+const debug = Debug('redis-message');
+
+type subFuncOptions = {
+
+};
+
+type originalMessage = {
+    id: number;
+    data: messageData;
+    msgType: string;
+};
+
+interface subFunc<func> {
+    (options: subFuncOptions): func;
+}
+
+
+type fetchMessageFunc = {
+    (): Promise<originalMessage[]>
+}
+
+type afterFetchMessageFunc = {
+    (data: { offset: number, noChange: boolean }): Promise<void>;
+}
+
+type handleFailedMessageFunc = {
+    (messageId: string, data: messageData|string): Promise<void>;
+}
+
+type loggerFunc = {
+    warn: Function,
+    error: Function,
+    info: Function
+};
+
+interface baseMessageOptions {
+    topic: string;
+    messageType: string;
+    redis: Redis
+}
+
+interface extraMessageOptions {
+    keyHeader: string;
+    lockExpireTime: number;
+    maxAckTimeout: number;
+    eachMessageCount: number;
+    minRedisMessageCount: number;
+    maxRetryTimes: number;
+    recordFailedMessage: boolean;
+    orderConsumption: boolean;
+    autoAck: boolean;
+    logger: loggerFunc;
+}
+
+export type redisMessageOptions = baseMessageOptions & Partial<extraMessageOptions> & {
+    fetchMessage?: subFunc<fetchMessageFunc>;
+    afterFetchMessage?: subFunc<afterFetchMessageFunc>;
+    dealFailedMessage?: subFunc<handleFailedMessageFunc>;
+    handleFailedMessage?: subFunc<handleFailedMessageFunc>;
+};
+
+interface redisMessagePrivateOptions extends baseMessageOptions, extraMessageOptions {
+    fetchMessage: fetchMessageFunc;
+    afterFetchMessage: afterFetchMessageFunc;
+    handleFailedMessage: handleFailedMessageFunc;
+    maxAckTimeoutSecords: number;
+};
+
+interface ackItem {
+    messageId?: string;
+    id?: string;
+    success?: boolean;
+}
+
+
+
+export default class RedisMessage {
+    private options: redisMessagePrivateOptions;
+    private fetchMessage: fetchMessageFunc;
+    private afterFetchMessage: afterFetchMessageFunc;
+    private handleFailedMessage: handleFailedMessageFunc;
+    private redis: RedisMethod;
+    private logger: loggerFunc;
+
+    constructor(options: redisMessageOptions) {
         const {
             topic, // topic 用于作为标识，在 redis key 进行区分
             messageType, // messageType
@@ -42,15 +125,16 @@ class RedisMessage {
             },
             afterFetchMessage = function (/* { topic, messageType } */) {
                 // const  = options;
-                return async function (data = {}) {
+                const func: afterFetchMessageFunc = async function (data) {
                     const {
                         offset
                     } = data;
                     debug(`message has been offset to :${offset}`);
                 };
+                return func;
             },
             dealFailedMessage = function (/* { topic, messageType } */) {
-                return async function (messageId, detail) {
+                return async function (messageId: string, detail: string|messageData) {
                     debug(`messageId: ${messageId} has been error acks`);
                     logger.warn(`message failed!! id: ${messageId} data: ${JSON.stringify(detail)}`);
                     return;
@@ -73,7 +157,7 @@ class RedisMessage {
             keyHeader, // redis key header 默认 msg_
             lockExpireTime, // redis lock 默认时间
             maxAckTimeout: maxAckTimeout, // 消费超时时间 默认 60s. 
-            maxAckTimeoutSecords: parseInt(maxAckTimeout / 1000), // 转换成单位秒(s)
+            maxAckTimeoutSecords: parseInt((maxAckTimeout/1000).toString()), // 转换成单位秒(s)
             eachMessageCount: eachMessageCount, // 每次 Message 获取数量
             minRedisMessageCount: minRedisMessageCount, // Redis 最少的 count 数量
             maxRetryTimes: maxRetryTimes, // 消息消费失败重新消费次数
@@ -124,7 +208,7 @@ class RedisMessage {
      * 如果大于则移除队列
      * @param {string} messageId messageId
      */
-    async _handleFailedMessage(messageId) {
+    async _handleFailedMessage(messageId: string) {
         // 获取失败次数
         const failedTimes = await this.redis.incrFailedTimes(messageId);
 
@@ -136,7 +220,7 @@ class RedisMessage {
                 this.logger.error(err);
             }
             // 最后调用 deal 函数
-            await this.handleFailedMessage(messageId, detail);
+            await this.handleFailedMessage(messageId, detail || '');
             return;
         }
 
@@ -148,7 +232,7 @@ class RedisMessage {
     async _pullMessage() {
         const list = await this.fetchMessage();
 
-        let offset;
+        let offset: number = 0;
 
         try {
             for (const msg of list) {
@@ -158,6 +242,7 @@ class RedisMessage {
                     msgType // 消息类型
                 } = msg;
                 await this.redis.pushMessage(id, data, msgType);
+
                 // 更新 offset
                 offset = id + 1;
             }
@@ -175,7 +260,7 @@ class RedisMessage {
      * 获取 messgae 数据
      * @return {boolean} 是否成功 pull
      */
-    async pullMessage(mqCount) {
+    async pullMessage(mqCount: number) {
         // 先 lock
         const lockStatus = await this.redis.setPullLock();
         if (!lockStatus) return false;
@@ -191,7 +276,6 @@ class RedisMessage {
                 self._pullMessage();
             }, 1000);
         }
-
         return true;
     }
 
@@ -217,7 +301,7 @@ class RedisMessage {
      * @param {integer} size 需要获得的消息数量
      * @return {array}  返回消息的数组
      */
-    async getMessages(size) {
+    async getMessages(size: number) {
         if (!size || size < 1) {
             size = 1;
         }
@@ -240,18 +324,30 @@ class RedisMessage {
      * @param {string|array} messageIds 消息 id 或消息 id 数组
      * @param {boolean} success boolean 是否是成功
      */
-    async ackMessages(messageIds, success) {
-        messageIds = [].concat(messageIds);
+    async ackMessages(messageIds: string[]|ackItem[]|string, success?: boolean) {
+        if (typeof messageIds === 'string') {
+            messageIds = [ messageIds ];
+        } 
+
         debug(`获得消息的数量为: ${messageIds.length}`);
+
         for (const messageId of messageIds) {
-            let _messageId;
-            let _success;
+            let _messageId: string|undefined;
+            let _success: boolean|undefined;
             if (typeof messageId === 'object') {
                 _messageId = messageId.messageId || messageId.id;
                 _success = messageId.success;
             }
-            _messageId = _messageId || messageId;
-            _success = _success || success;
+
+            if (!_messageId && typeof messageId === 'string') {
+                _messageId = messageId;
+            }
+
+            _success = _success || success || true;
+
+            if (!_messageId) {
+                continue;
+            }
 
             const time = await this.redis.getTime(_messageId);
             if (!time) {
