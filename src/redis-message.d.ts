@@ -1,6 +1,9 @@
 import { messageData } from './redis-method';
 import { Redis } from 'ioredis';
-declare type subFuncOptions = {};
+declare type subFuncOptions = {
+    topic: string;
+    messageType: string;
+};
 declare type originalMessage = {
     id: number;
     data: messageData;

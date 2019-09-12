@@ -69,6 +69,11 @@ class RedisMessage {
         logger = logger_1.default, // logger
         redis // ioredis 实例
          } = options;
+        const subFuncOptions = {
+            topic: topic,
+            messageType: messageType,
+            test: '123'
+        };
         this.options = {
             topic,
             messageType,
@@ -91,9 +96,9 @@ class RedisMessage {
             // 1. fetch
             // 2. after fetch
             // 3. failed msg deal
-            fetchMessage: fetchMessage(options),
-            afterFetchMessage: afterFetchMessage(options),
-            handleFailedMessage: handleFailedMessage ? handleFailedMessage(options) : dealFailedMessage(options)
+            fetchMessage: fetchMessage(subFuncOptions),
+            afterFetchMessage: afterFetchMessage(subFuncOptions),
+            handleFailedMessage: handleFailedMessage ? handleFailedMessage(subFuncOptions) : dealFailedMessage(subFuncOptions)
         };
         // 顺序消费模式
         if (this.options.orderConsumption) {
@@ -133,9 +138,11 @@ class RedisMessage {
                 catch (err) {
                     this.logger.error(err);
                 }
-                // 最后调用 deal 函数
-                yield this.handleFailedMessage(messageId, detail || '');
-                return;
+                if (this.options.recordFailedMessage) {
+                    // 最后调用 deal 函数
+                    yield this.handleFailedMessage(messageId, detail || '');
+                    return;
+                }
             }
             // 初始化调用时间
             // 重新 push 到队列中

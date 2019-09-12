@@ -13,13 +13,14 @@ import { Redis } from 'ioredis';
 const debug = Debug('redis-message');
 
 type subFuncOptions = {
-
+    topic: string; // topic
+    messageType: string; // messageType
 };
 
 type originalMessage = {
-    id: number;
-    data: messageData;
-    msgType: string;
+    id: number; // message 在数据库里的 id ，自增数字
+    data: messageData; // 实际数据
+    msgType: string; // msgType 标识数据所属类别
 };
 
 interface subFunc<func> {
@@ -46,22 +47,22 @@ type loggerFunc = {
 };
 
 interface baseMessageOptions {
-    topic: string;
-    messageType: string;
+    topic: string; // topic 用于作为标识，在 redis key 进行区分
+    messageType: string; // messageType
     redis: Redis
 }
 
 interface extraMessageOptions {
-    keyHeader: string;
-    lockExpireTime: number;
-    maxAckTimeout: number;
-    eachMessageCount: number;
-    minRedisMessageCount: number;
-    maxRetryTimes: number;
-    recordFailedMessage: boolean;
-    orderConsumption: boolean;
-    autoAck: boolean;
-    logger: loggerFunc;
+    keyHeader: string; // redis key header 默认 msg_
+    lockExpireTime: number; // redis lock 默认时间
+    maxAckTimeout: number; // 消费超时时间 默认 60s. 
+    eachMessageCount: number; // 每次 Message 获取数量
+    minRedisMessageCount: number; // Redis 最少的 count 数量
+    maxRetryTimes: number; // 消息消费失败重新消费次数
+    recordFailedMessage: boolean; // 记录失败的数据
+    orderConsumption: boolean; // 是否支持顺序消费
+    autoAck: boolean; // 是否支持 auto-ack 模式
+    logger: loggerFunc; // logger
 }
 
 export type redisMessageOptions = baseMessageOptions & Partial<extraMessageOptions> & {
@@ -147,6 +148,12 @@ export default class RedisMessage {
             redis // ioredis 实例
         } = options;
 
+        const subFuncOptions = {
+            topic: topic,
+            messageType: messageType,
+            test: '123'
+        };
+
         this.options = {
             topic, // topic 用于作为标识，在 redis key 进行区分
             messageType, // messageType 数据源
@@ -172,9 +179,9 @@ export default class RedisMessage {
             // 1. fetch
             // 2. after fetch
             // 3. failed msg deal
-            fetchMessage: fetchMessage(options),
-            afterFetchMessage: afterFetchMessage(options),
-            handleFailedMessage: handleFailedMessage ? handleFailedMessage(options) : dealFailedMessage(options)
+            fetchMessage: fetchMessage(subFuncOptions),
+            afterFetchMessage: afterFetchMessage(subFuncOptions),
+            handleFailedMessage: handleFailedMessage ? handleFailedMessage(subFuncOptions) : dealFailedMessage(subFuncOptions)
         };
 
         // 顺序消费模式
@@ -219,9 +226,12 @@ export default class RedisMessage {
             } catch (err) {
                 this.logger.error(err);
             }
-            // 最后调用 deal 函数
-            await this.handleFailedMessage(messageId, detail || '');
-            return;
+
+            if (this.options.recordFailedMessage) {
+                // 最后调用 deal 函数
+                await this.handleFailedMessage(messageId, detail || '');
+                return;
+            }
         }
 
         // 初始化调用时间

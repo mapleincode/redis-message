@@ -13,6 +13,10 @@ function now() {
     return parseInt(now.toString());
 }
 exports.now = now;
+/**
+ * sleep
+ * @param second 时间
+ */
 function sleep(second) {
     return __awaiter(this, void 0, void 0, function* () {
         return new Promise(function (resolve) {

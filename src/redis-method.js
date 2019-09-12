@@ -157,7 +157,7 @@ class RedisMethod {
     }
     initTime(messageId) {
         return __awaiter(this, void 0, void 0, function* () {
-            return yield this.redis.hset(this.MQ_HASH_NAME, messageId, null);
+            return yield this.redis.hset(this.MQ_HASH_NAME, messageId, '');
         });
     }
     getMessageId(id) {
@@ -286,7 +286,7 @@ class RedisMethod {
     }
     initTimeAndRpush(messageId) {
         return __awaiter(this, void 0, void 0, function* () {
-            yield this.redis.hset(this.MQ_HASH_NAME, messageId, null);
+            yield this.redis.hset(this.MQ_HASH_NAME, messageId, '');
             yield this.redis.rpush(this.MQ_NAME, messageId);
         });
     }
