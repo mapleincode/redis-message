@@ -24,7 +24,6 @@ class RedisMethod {
         this.LOCK_CHECK_KEY = `${this.keyHeader}-${topic}-check-lock`;
         this.LOCK_ORDER_KEY = `${this.keyHeader}-${topic}-order-lock`;
         this.ORDER_CONSUME_SELECTED = `${this.keyHeader}-${topic}-order-consume-selected`;
-        this.ORDER_CONSUME_ACKED = `${this.keyHeader}-${topic}-order-consume-acked`;
     }
     packMessage(data, msgType) {
         if (typeof data === 'string') {
@@ -315,7 +314,7 @@ class RedisMethod {
             yield this.redis.del(this.LOCK_ORDER_KEY);
         });
     }
-    initOrderConsumeIds(ids) {
+    initSelectedIds(ids) {
         return __awaiter(this, void 0, void 0, function* () {
             if (!ids.length) {
                 return;
@@ -325,36 +324,17 @@ class RedisMethod {
             return;
         });
     }
-    setOrderConsumerAckedIds(ids) {
+    getSelectedIds() {
         return __awaiter(this, void 0, void 0, function* () {
-            if (!ids.length) {
-                return;
-            }
-            yield this.redis.set(this.ORDER_CONSUME_ACKED, ids.join('|'));
-            yield this.expire(this.ORDER_CONSUME_ACKED, this.lockExpireTime);
-            return;
-        });
-    }
-    getOrderConsumerInfo() {
-        return __awaiter(this, void 0, void 0, function* () {
-            const cmds = [
-                ['get', this.ORDER_CONSUME_SELECTED],
-                ['get', this.ORDER_CONSUME_ACKED]
-            ];
-            const results = yield this.redis.multi(cmds).exec();
-            const selectedIds = results[0].split('|');
-            const ackedIds = results[0].split('|');
-            return {
-                selectedIds,
-                ackedIds
-            };
+            const idString = (yield this.redis.get(this.ORDER_CONSUME_SELECTED)) || '';
+            const selectIds = idString.trim().split('|').filter(id => !!id);
+            return selectIds;
         });
     }
     cleanOrderConsumer() {
         return __awaiter(this, void 0, void 0, function* () {
             const cmds = [
                 ['del', this.ORDER_CONSUME_SELECTED],
-                ['del', this.ORDER_CONSUME_ACKED],
                 ['del', this.LOCK_ORDER_KEY]
             ];
             yield this.redis.multi(cmds).exec();

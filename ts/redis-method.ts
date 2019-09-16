@@ -35,7 +35,6 @@ export default class RedisMethod {
     private LOCK_CHECK_KEY: string;
     private LOCK_ORDER_KEY: string;
     private ORDER_CONSUME_SELECTED: string;
-    private ORDER_CONSUME_ACKED: string;
 
     constructor(redis: Redis, options: RedisMethodOptions) {
         this.redis = redis;
@@ -58,11 +57,9 @@ export default class RedisMethod {
         this.LOCK_CHECK_KEY = `${this.keyHeader}-${topic}-check-lock`;
         this.LOCK_ORDER_KEY = `${this.keyHeader}-${topic}-order-lock`;
         this.ORDER_CONSUME_SELECTED = `${this.keyHeader}-${topic}-order-consume-selected`;
-        this.ORDER_CONSUME_ACKED = `${this.keyHeader}-${topic}-order-consume-acked`;
-
     }
 
-    private packMessage(data: messageData, msgType: string) {
+    packMessage(data: messageData, msgType: string) {
         if(typeof data === 'string') {
             try {
                 data = JSON.parse(data);
@@ -78,7 +75,7 @@ export default class RedisMethod {
         return JSON.stringify({ data, msgType });
     }
 
-    private unpackMessage(jsonStr: string) {
+    unpackMessage(jsonStr: string) {
         let data: redisMessageData;
 
         try {
@@ -97,7 +94,7 @@ export default class RedisMethod {
      * @param {string} key key
      * @param {integer} timestamp 时间戳
      */
-    private async expire(key: string, timestamp: number) {
+    async expire(key: string, timestamp: number) {
         return await this.redis.expire(key, timestamp);
     }
     /**
@@ -333,7 +330,7 @@ export default class RedisMethod {
         await this.redis.del(this.LOCK_ORDER_KEY);
     }
 
-    async initOrderConsumeIds(ids: string[]) {
+    async initSelectedIds(ids: string[]) {
         if (!ids.length) {
             return;
         }
@@ -342,35 +339,15 @@ export default class RedisMethod {
         return;
     }
 
-    async setOrderConsumerAckedIds(ids: string[]) {
-        if (!ids.length) {
-            return;
-        }
-        await this.redis.set(this.ORDER_CONSUME_ACKED, ids.join('|'));
-        await this.expire(this.ORDER_CONSUME_ACKED, this.lockExpireTime);
-        return;
-    }
-
-    async getOrderConsumerInfo() {
-        const cmds = [
-            [ 'get', this.ORDER_CONSUME_SELECTED ],
-            [ 'get', this.ORDER_CONSUME_ACKED ]
-        ];
-        const results: string[] = await this.redis.multi(cmds).exec();
-
-        const selectedIds = results[0].split('|');
-        const ackedIds = results[0].split('|');
-
-        return {
-            selectedIds,
-            ackedIds
-        };
+    async getSelectedIds() {
+        const idString = await this.redis.get(this.ORDER_CONSUME_SELECTED) || '';
+        const selectIds = idString.trim().split('|').filter(id => !!id);
+        return selectIds
     }
 
     async cleanOrderConsumer() {
         const cmds = [
             [ 'del', this.ORDER_CONSUME_SELECTED ],
-            [ 'del', this.ORDER_CONSUME_ACKED ],
             [ 'del', this.LOCK_ORDER_KEY ]
         ]
         await this.redis.multi(cmds).exec();

@@ -322,6 +322,17 @@ export default class RedisMessage {
             size = 1;
         }
 
+        debug(`获取 ${size} 条数据`);
+
+        if (this.options.orderConsumption) {
+            const status = this.orderConsumeLock();
+            debug('顺序消费，消费还未结束');
+            if (!status) {
+                return [];
+            }
+        }
+
+
         const mqCount = await this.redis.messageCount();
 
         let fetchStatus;
@@ -355,45 +366,16 @@ export default class RedisMessage {
         // 从 redis 获取
         const list = await this.redis.fetchMultiMessage(size);
 
-        // if (this.options.orderConsumption) {
-        //     // 顺序请求
-        //     // 需要记录本次获取的 ids
-        //     this.setOrderConsumeIds(list);
-        // }
+        if (this.options.orderConsumption) {
+            // 顺序请求
+            // 需要记录本次获取的 ids
+            this.setOrderConsumeIds(list);
+        }
 
         return list;
     }
 
-    // /**
-    //  * 顺序消费
-    //  */
-    // async orderConsumeLock() {
-    //     const status = await this.redis.orderConsumeLock();
-    //     return status;
-    // }
-
-    // /**
-    //  * 
-    //  * @param ids 消费的 ids
-    //  */
-    // async setOrderConsumeIds(items: { messageId: string }[]) {
-    //     const ids = items.map(item => item.messageId);
-    //     await this.redis.initOrderConsumeIds(ids);
-    // }
-
-    // async ackOrderConsumeIds(items: { messageId: string, success: boolean }[]) {
-    // }
-
-    // async cleanOrderConsume() {
-    //     await this.redis.cleanOrderConsumer();
-    // }
-
-    /**
-     * 成功消费消息或者失败消费消息
-     * @param {string|array} messageIds 消息 id 或消息 id 数组
-     * @param {boolean} success boolean 是否是成功
-     */
-    async ackMessages(messageIds: string[] | ackItem[] | string, success?: boolean) {
+    private async ackNormalMessages(messageIds: string[] | ackItem[] | string, allSuccess: boolean = true) {
         if (typeof messageIds === 'string') {
             messageIds = [ messageIds ];
         } 
@@ -402,42 +384,26 @@ export default class RedisMessage {
 
         const processdItems: { messageId: string, success: boolean }[] = [];
 
-        for (const messageId of messageIds) {
-            let _messageId: string|undefined;
-            let _success: boolean|undefined;
-            if (typeof messageId === 'object') {
-                _messageId = messageId.messageId || messageId.id;
-                _success = messageId.success;
+        for (const item of messageIds) {
+            let messageId: string|undefined;
+            let success: boolean|undefined;
+            if (typeof item === 'object') {
+                messageId = item.messageId || item.id;
+                success = item.success || allSuccess;
             }
 
-            if (!_messageId && typeof messageId === 'string') {
-                _messageId = messageId;
+            if (!messageId && typeof item === 'string') {
+                messageId = item;
+                success = allSuccess;
             }
 
-            _success = _success || success;
-
-            if (_success === undefined) {
-                _success = true;
+            if (messageId && success !== undefined) {
+                processdItems.push({
+                    success: success,
+                    messageId: messageId
+                });
             }
-
-            if (!_messageId) {
-                continue;
-            }
-
-            processdItems.push({
-                success: _success,
-                messageId: _messageId
-            });
         }
-
-        // if (this.options.orderConsumption) {
-        //     // 顺序消费处理 ack 逻辑
-
-        //     const ids = processdItems.filter(item => item.success).map(item => item.messageId);
-
-        //     this.ackOrderConsumeIds(ids);
-        //     return;
-        // }
 
         for(const item of processdItems) {
             let { messageId, success } = item;
@@ -464,6 +430,21 @@ export default class RedisMessage {
             }
         }
     }
+
+    /**
+     * 成功消费消息或者失败消费消息
+     * @param {string|array} messageIds 消息 id 或消息 id 数组
+     * @param {boolean} success boolean 是否是成功
+     */
+    async ackMessages(messageIds: string[] | ackItem[] | string | boolean, allSuccess: boolean = true) {
+        if (typeof messageIds === 'boolean') {
+            return await this.ackOrderMessages(messageIds);
+        }
+
+        return await this.ackNormalMessages(messageIds, allSuccess);
+    }
+
+    // ======================= 检查脚本 ================================
     /**
      * 1. 检查消息是否有异常
      * 2. 检查消息消费是否超时
@@ -522,6 +503,51 @@ export default class RedisMessage {
             missingList: missingList
         };
     }
+
+    // =============== 顺序消费接口 =======================
+
+    /**
+     * 顺序消费
+     */
+    private async orderConsumeLock() {
+        const status = await this.redis.orderConsumeLock();
+        return status;
+    }
+
+    /**
+     * 对获取的数据的 id 进行保存
+     * @param ids 消费的 ids
+     */
+    private async setOrderConsumeIds(items: { messageId: string }[]) {
+        const ids = items.map(item => item.messageId);
+        await this.redis.initSelectedIds(ids);
+    }
+
+    private async cleanOrderConsume() {
+        await this.redis.cleanOrderConsumer();
+    }
+
+    private async ackOrderMessages(successAll: boolean) {
+        debug('ack order message');
+
+        const ids = await this.redis.getSelectedIds();
+
+        for(const messageId of ids) {
+            try {
+                if (successAll) {
+                    await this.redis.cleanMsg(messageId);
+                } else {
+                    await this._handleFailedMessage(messageId);
+                }
+            } catch(err) {
+                this.logger.error('ORDER_CONSUME_ACK_FAILED', { err: err, messageId: messageId, successAll });
+            }
+        }
+
+        this.cleanOrderConsume();
+    }
+
+    // ========== 管理接口 =============
 
     async __messageUnconsumed() {
         const length = await this.redis.messageCount();

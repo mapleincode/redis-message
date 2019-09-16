@@ -1,4 +1,4 @@
-const Redis = require('../lib/redis-method');
+const Redis = require('../src/redis-method').default;
 // const IORedis = require('ioredis');
 // const _redis = new IORedis();
 const should = require('should');
@@ -65,7 +65,7 @@ describe('redis method', function() {
         const data = 'hello';
         const msgType = 'foo1';
 
-        const result = redis._packMessage(data, msgType);
+        const result = redis.packMessage(data, msgType);
         result.should.equal('{"data":"hello","msgType":"foo1"}');
     });
 
@@ -73,7 +73,7 @@ describe('redis method', function() {
         const data = '{"foo":"bar"}';
         const msgType = 'foo2';
 
-        const result = redis._packMessage(data, msgType);
+        const result = redis.packMessage(data, msgType);
         result.should.equal('{"data":{"foo":"bar"},"msgType":"foo2"}');
     });
 
@@ -84,7 +84,7 @@ describe('redis method', function() {
             }
         };
         const msgType = 'foo3';
-        const result = redis._packMessage(data, msgType);
+        const result = redis.packMessage(data, msgType);
         result.should.equal('{"data":{"foo":{"bar":"qaq"}},"msgType":"foo3"}');
     });
 
@@ -94,10 +94,10 @@ describe('redis method', function() {
         const str3 = 'foo';
         const str4 = '{"data":{"foo":"bar"},"msgType":"foo2"}';
 
-        should(redis._unpackMessage(str1)).be.Null;
-        should(redis._unpackMessage(str2)).be.Null;
-        should(redis._unpackMessage(str3)).equal('foo');
-        should(redis._unpackMessage(str4)).deepEqual({
+        should(redis.unpackMessage(str1)).be.Null;
+        should(redis.unpackMessage(str2)).be.Null;
+        should(redis.unpackMessage(str3)).deepEqual({ msgType: 'unknown', data: 'foo' });
+        should(redis.unpackMessage(str4)).deepEqual({
             data: {
                 foo: 'bar'
             },
@@ -110,7 +110,7 @@ describe('redis method', function() {
             return { key, time };
         };
 
-        const { key, time } = await redis._expire('key', 'timestamp');
+        const { key, time } = await redis.expire('key', 'timestamp');
         key.should.equal('key');
         time.should.equal('timestamp');
 
@@ -131,7 +131,7 @@ describe('redis method', function() {
     it('set pull lock', async function() {
         let expireTime = null;
         let expireKey = null;
-        redis._expire = async function(key, time) {
+        redis.expire = async function(key, time) {
             expireKey = key;
             expireTime = time;
         };
@@ -173,7 +173,7 @@ describe('redis method', function() {
     it('set check lock', async function() {
         let expireTime = null;
         let expireKey = null;
-        redis._expire = async function(key, time) {
+        redis.expire = async function(key, time) {
             expireKey = key;
             expireTime = time;
         };

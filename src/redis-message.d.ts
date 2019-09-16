@@ -99,12 +99,13 @@ export default class RedisMessage {
         msgType: string;
         data: messageData;
     }>[]>;
+    private ackNormalMessages;
     /**
      * 成功消费消息或者失败消费消息
      * @param {string|array} messageIds 消息 id 或消息 id 数组
      * @param {boolean} success boolean 是否是成功
      */
-    ackMessages(messageIds: string[] | ackItem[] | string, success?: boolean): Promise<void>;
+    ackMessages(messageIds: string[] | ackItem[] | string | boolean, allSuccess?: boolean): Promise<void>;
     /**
      * 1. 检查消息是否有异常
      * 2. 检查消息消费是否超时
@@ -113,6 +114,17 @@ export default class RedisMessage {
         timeoutList: string[];
         missingList: string[];
     } | undefined>;
+    /**
+     * 顺序消费
+     */
+    private orderConsumeLock;
+    /**
+     * 对获取的数据的 id 进行保存
+     * @param ids 消费的 ids
+     */
+    private setOrderConsumeIds;
+    private cleanOrderConsume;
+    private ackOrderMessages;
     __messageUnconsumed(): Promise<{
         itemsLength: number;
         items: any;

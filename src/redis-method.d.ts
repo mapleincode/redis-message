@@ -28,16 +28,15 @@ export default class RedisMethod {
     private LOCK_CHECK_KEY;
     private LOCK_ORDER_KEY;
     private ORDER_CONSUME_SELECTED;
-    private ORDER_CONSUME_ACKED;
     constructor(redis: Redis, options: RedisMethodOptions);
-    private packMessage;
-    private unpackMessage;
+    packMessage(data: messageData, msgType: string): string;
+    unpackMessage(jsonStr: string): redisMessageData;
     /**
      * 设置 redis key 过期时间戳
      * @param {string} key key
      * @param {integer} timestamp 时间戳
      */
-    private expire;
+    expire(key: string, timestamp: number): Promise<import("v8").DoesZapCodeSpaceFlag>;
     /**
      * 返回消息队列的总数
      * @return {integer} count
@@ -80,12 +79,8 @@ export default class RedisMethod {
     initTimeAndRpush(messageId: string, pushLeft?: boolean): Promise<void>;
     orderConsumeLock(): Promise<boolean>;
     orderConsumeUnlock(): Promise<void>;
-    initOrderConsumeIds(ids: string[]): Promise<void>;
-    setOrderConsumerAckedIds(ids: string[]): Promise<void>;
-    getOrderConsumerInfo(): Promise<{
-        selectedIds: string[];
-        ackedIds: string[];
-    }>;
+    initSelectedIds(ids: string[]): Promise<void>;
+    getSelectedIds(): Promise<string[]>;
     cleanOrderConsumer(): Promise<void>;
 }
 export {};
