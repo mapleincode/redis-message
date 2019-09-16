@@ -46,12 +46,12 @@ interface extraMessageOptions {
     autoAck: boolean;
     logger: loggerFunc;
 }
-export declare type redisMessageOptions = baseMessageOptions & Partial<extraMessageOptions> & {
+export interface redisMessageOptions extends baseMessageOptions, Partial<extraMessageOptions> {
     fetchMessage?: subFunc<fetchMessageFunc>;
     afterFetchMessage?: subFunc<afterFetchMessageFunc>;
     dealFailedMessage?: subFunc<handleFailedMessageFunc>;
     handleFailedMessage?: subFunc<handleFailedMessageFunc>;
-};
+}
 interface ackItem {
     messageId?: string;
     id?: string;

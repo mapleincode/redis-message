@@ -66,7 +66,7 @@ interface extraMessageOptions {
     logger: loggerFunc; // logger
 }
 
-export type redisMessageOptions = baseMessageOptions & Partial<extraMessageOptions> & {
+export interface redisMessageOptions extends baseMessageOptions, Partial<extraMessageOptions> {
     fetchMessage?: subFunc<fetchMessageFunc>;
     afterFetchMessage?: subFunc<afterFetchMessageFunc>;
     dealFailedMessage?: subFunc<handleFailedMessageFunc>;
@@ -217,8 +217,11 @@ export default class RedisMessage {
      * @param {string} messageId messageId
      */
     async _handleFailedMessage(messageId: string) {
+        debug(`处理失败的 Message ${messageId}`);
         // 获取失败次数
         const failedTimes = await this.redis.incrFailedTimes(messageId);
+
+        debug(`获取失败次数为 ${failedTimes} 当前 max ${this.options.maxRetryTimes}`);
 
         if (failedTimes > this.options.maxRetryTimes) {
             let detail;
@@ -238,6 +241,9 @@ export default class RedisMessage {
         // 初始化调用时间
         // 重新 push 到队列中
         // 如果是顺序消费，就是从左边进行 push
+
+        debug(`该条消息重新进入消费 & 是顺序消费: ${this.options.orderConsumption}`);
+
         await this.redis.initTimeAndRpush(messageId, this.options.orderConsumption);
     }
 
@@ -322,12 +328,12 @@ export default class RedisMessage {
             size = 1;
         }
 
-        debug(`获取 ${size} 条数据`);
+        debug(`设置需要获取 ${size} 条数据`);
 
         if (this.options.orderConsumption) {
-            const status = this.orderConsumeLock();
-            debug('顺序消费，消费还未结束');
+            const status = await this.orderConsumeLock();
             if (!status) {
+                debug(`顺序消费，消费还未结束，status: ${status}`);
                 return [];
             }
         }
@@ -519,11 +525,13 @@ export default class RedisMessage {
      * @param ids 消费的 ids
      */
     private async setOrderConsumeIds(items: { messageId: string }[]) {
+        debug('设置顺序消费 ids');
         const ids = items.map(item => item.messageId);
         await this.redis.initSelectedIds(ids);
     }
 
     private async cleanOrderConsume() {
+        debug('清理顺序消费相关的 lock');
         await this.redis.cleanOrderConsumer();
     }
 
@@ -532,7 +540,7 @@ export default class RedisMessage {
 
         const ids = await this.redis.getSelectedIds();
 
-        for(const messageId of ids) {
+        for(const messageId of ids.reverse()) {
             try {
                 if (successAll) {
                     await this.redis.cleanMsg(messageId);

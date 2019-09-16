@@ -21,6 +21,7 @@ const logger_1 = __importDefault(require("./logger"));
 const debug_1 = __importDefault(require("debug"));
 const debug = debug_1.default('redis-message');
 ;
+;
 class RedisMessage {
     constructor(options) {
         const { topic, // topic 用于作为标识，在 redis key 进行区分
@@ -128,8 +129,10 @@ class RedisMessage {
      */
     _handleFailedMessage(messageId) {
         return __awaiter(this, void 0, void 0, function* () {
+            debug(`处理失败的 Message ${messageId}`);
             // 获取失败次数
             const failedTimes = yield this.redis.incrFailedTimes(messageId);
+            debug(`获取失败次数为 ${failedTimes} 当前 max ${this.options.maxRetryTimes}`);
             if (failedTimes > this.options.maxRetryTimes) {
                 let detail;
                 try {
@@ -147,6 +150,7 @@ class RedisMessage {
             // 初始化调用时间
             // 重新 push 到队列中
             // 如果是顺序消费，就是从左边进行 push
+            debug(`该条消息重新进入消费 & 是顺序消费: ${this.options.orderConsumption}`);
             yield this.redis.initTimeAndRpush(messageId, this.options.orderConsumption);
         });
     }
@@ -233,11 +237,11 @@ class RedisMessage {
             if (!size || size < 1) {
                 size = 1;
             }
-            debug(`获取 ${size} 条数据`);
+            debug(`设置需要获取 ${size} 条数据`);
             if (this.options.orderConsumption) {
-                const status = this.orderConsumeLock();
-                debug('顺序消费，消费还未结束');
+                const status = yield this.orderConsumeLock();
                 if (!status) {
+                    debug(`顺序消费，消费还未结束，status: ${status}`);
                     return [];
                 }
             }
@@ -410,12 +414,14 @@ class RedisMessage {
      */
     setOrderConsumeIds(items) {
         return __awaiter(this, void 0, void 0, function* () {
+            debug('设置顺序消费 ids');
             const ids = items.map(item => item.messageId);
             yield this.redis.initSelectedIds(ids);
         });
     }
     cleanOrderConsume() {
         return __awaiter(this, void 0, void 0, function* () {
+            debug('清理顺序消费相关的 lock');
             yield this.redis.cleanOrderConsumer();
         });
     }
@@ -423,7 +429,7 @@ class RedisMessage {
         return __awaiter(this, void 0, void 0, function* () {
             debug('ack order message');
             const ids = yield this.redis.getSelectedIds();
-            for (const messageId of ids) {
+            for (const messageId of ids.reverse()) {
                 try {
                     if (successAll) {
                         yield this.redis.cleanMsg(messageId);
