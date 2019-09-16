@@ -245,10 +245,15 @@ export default class RedisMessage {
         debug(`该条消息重新进入消费 & 是顺序消费: ${this.options.orderConsumption}`);
 
         await this.redis.initTimeAndRpush(messageId, this.options.orderConsumption);
+
+        debug('重新初始化消费成功');
     }
 
     async _pullMessage() {
+        debug('pull message by fetch message func');
         const list = await this.fetchMessage();
+
+        debug('pull message success');
 
         let offset: number|undefined;
         let successItems = 0;
@@ -260,7 +265,10 @@ export default class RedisMessage {
                     data, // data
                     msgType // 消息类型
                 } = msg;
+
+                debug(`push message id: ${id}`);
                 await this.redis.pushMessage(id, data, msgType);
+                debug(`push message id: ${id} success`);
 
                 // 更新 offset
                 offset = id + 1;
@@ -270,10 +278,14 @@ export default class RedisMessage {
             this.logger.error(err);
         }
 
+        debug('after fetch message');
         await this.afterFetchMessage({
             offset: offset,
             noChange: !offset
         });
+
+        debug('clean pull lock');
+
         await this.redis.cleanPullLock();
         return successItems;
     }
@@ -281,20 +293,30 @@ export default class RedisMessage {
      * 获取 messgae 数据
      * @return {boolean} 是否成功 pull
      */
-    async pullMessage(mqCount: number) {
+    async pullMessage(existedMQCount: number) {
+        debug('set pull lock');
         // 先 lock
         const lockStatus = await this.redis.setPullLock();
-        if (!lockStatus) return false;
+
+        debug('set lock close end have value: ' + lockStatus);
+        if (!lockStatus) {
+            debug('获取 lock 失败，返回 false');
+            return false;
+        }
         // fetch message list
         const self = this;
-        // Async
-        if (mqCount === 0) {
+        // Async or sync
+        if (existedMQCount === 0) {
+            debug('已有数据为空，同步返回数据，直接 pull message');
+
             // 如果不 pull 数据可能为 0,所以还是等 pull message 完成再返回消息
             const successItems = await self._pullMessage(); // 直接 pull
             return { successItems: successItems };
         } else {
+            debug('旧数据存在，异步 pull 数据，直接返回 true');
             // 如果数据总不是不是 0 ，那就异步 pull message。先返回消息。保证消息的延迟。
             setTimeout(function () {
+                debug('执行 1000ms 之后的异步任务');
                 self._pullMessage();
             }, 1000);
         }
@@ -345,9 +367,10 @@ export default class RedisMessage {
         // 如果实际拥有的 count 数小于实际的数量
         if (mqCount < this.options.minRedisMessageCount) {
             fetchStatus = await this.pullMessage(mqCount); // async
-            if (!fetchStatus) {
+            if (!fetchStatus && mqCount === 0) {
                 // 说明有个进程可能已经在获取了
                 // 这时候应该等待
+                // 如果 mqCount 不为 0 就不需要等待了
                 await sleep(500);
             }
         }
@@ -427,11 +450,11 @@ export default class RedisMessage {
             }
 
             if (success) {
-                debug(`messageId: ${messageId} 设置成功`);
+                debug(`清理 messageId: ${messageId}`);
                 await this.redis.cleanMsg(messageId);
+                debug('清理 message 成功');
             } else {
-                debug(`messageId: ${messageId} 没有 time`);
-                debug(`messageId: ${messageId} 设置失败`);
+                debug(`messageId: ${messageId} 没有 time 设置失败`);
                 await this._handleFailedMessage(messageId);
             }
         }

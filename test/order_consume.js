@@ -1,7 +1,7 @@
 const should = require('should');
 const ioredis = require('ioredis');
-const _redis = new ioredis(6380, '192.168.2.120');
 const RedisMessage = require('../index').RedisMessage;
+const debug = require('debug')('redis-message:test:message');
 
 const body = {
     name: 'Bob'
@@ -46,50 +46,47 @@ const dealFailedMessage = function (options) {
     };
 };
 
-const redisMessage = new RedisMessage({
-    redis: _redis,
-    topic: 'topic',
-    fetchMessage: fetchMessage,
-    afterFetchMessage: afterFetchMessage,
-    dealFailedMessage: dealFailedMessage,
-    orderConsumption: true
-});
+let _redis;
 
-const redis = redisMessage.redis;
+let redisMessage;
+
+let redis;
 
 describe('order consume', function() {
+    before(async function() {
+        _redis = new ioredis(6380, '192.168.2.120');
+
+        redisMessage = new RedisMessage({
+            redis: _redis,
+            topic: 'topic',
+            fetchMessage: fetchMessage,
+            afterFetchMessage: afterFetchMessage,
+            dealFailedMessage: dealFailedMessage,
+            orderConsumption: true
+        });
+
+        redis = redisMessage.redis;
+    });
+
     beforeEach(async function () {
         await _redis.flushdb(); // 清理 redis 数据库
         indexId = 0;
         fetchMessageLengthLimit = 0; // 可 pull 数据为 0
         afterFetchMessageData = null; // 初始化 afterFetchMessageData 为 null
-        await sleep(500);
+
+        debug('begin test unit');
     });
+
+    afterEach(async function() {
+        await sleep(1500); // 存在异步操作可能要 1 s 后才执行,所以需要上一步先执行完
+    })
 
     after(async function () {
         this.timeout(0);
         await _redis.flushdb();
-        await sleep(1000);
+        await sleep(2000); // 存在异步操作可能要 1 s 后才执行
         await _redis.quit();
     });
-
-    // it('fetch order', async function() {
-    //     fetchMessageLengthLimit = 10;
-        
-    //     let datas = await redisMessage.getMessages(5);
-
-    //     datas.should.be.an.Array();
-
-    //     const data = datas[0];
-
-    //     data.should.deepEqual({
-    //         data: {
-    //             name: 'Bob'
-    //         },
-    //         messageId: 'topic-0',
-    //         msgType: 'msgType'
-    //     });
-    // })
 
     it('fetch order & ack false', async function() {
         fetchMessageLengthLimit = 4;

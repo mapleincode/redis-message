@@ -77,7 +77,7 @@ export default class RedisMessage {
      * 获取 messgae 数据
      * @return {boolean} 是否成功 pull
      */
-    pullMessage(mqCount: number): Promise<boolean | {
+    pullMessage(existedMQCount: number): Promise<boolean | {
         successItems: number;
     }>;
     /**
