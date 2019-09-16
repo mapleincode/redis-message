@@ -22,6 +22,9 @@ class RedisMethod {
         this.MQ_HASH_RETRY_TIMES = `${this.keyHeader}-${topic}-redis-retry-hash`;
         this.LOCK_PULL_KEY = `${this.keyHeader}-${topic}-pull-lock`;
         this.LOCK_CHECK_KEY = `${this.keyHeader}-${topic}-check-lock`;
+        this.LOCK_ORDER_KEY = `${this.keyHeader}-${topic}-order-lock`;
+        this.ORDER_CONSUME_SELECTED = `${this.keyHeader}-${topic}-order-consume-selected`;
+        this.ORDER_CONSUME_ACKED = `${this.keyHeader}-${topic}-order-consume-acked`;
     }
     packMessage(data, msgType) {
         if (typeof data === 'string') {
@@ -54,7 +57,7 @@ class RedisMethod {
      * @param {string} key key
      * @param {integer} timestamp 时间戳
      */
-    _expire(key, timestamp) {
+    expire(key, timestamp) {
         return __awaiter(this, void 0, void 0, function* () {
             return yield this.redis.expire(key, timestamp);
         });
@@ -76,7 +79,7 @@ class RedisMethod {
         return __awaiter(this, void 0, void 0, function* () {
             const value = yield this.redis.incr(this.LOCK_PULL_KEY);
             if (value === 1) {
-                yield this._expire(this.LOCK_PULL_KEY, this.lockExpireTime);
+                yield this.expire(this.LOCK_PULL_KEY, this.lockExpireTime);
                 return true;
             }
             return false;
@@ -94,7 +97,7 @@ class RedisMethod {
         return __awaiter(this, void 0, void 0, function* () {
             const value = yield this.redis.incr(this.LOCK_CHECK_KEY);
             if (value === 1) {
-                yield this._expire(this.LOCK_CHECK_KEY, this.lockExpireTime);
+                yield this.expire(this.LOCK_CHECK_KEY, this.lockExpireTime);
                 return true;
             }
             return false;
@@ -260,23 +263,24 @@ class RedisMethod {
             if (!realResults.length)
                 return [];
             cmds = [];
+            const timeNow = utils_1.now().toString();
             for (const messageId of realResults) {
                 if (typeof messageId !== 'string') {
                     continue;
                 }
                 cmds.push([
-                    'hset', this.MQ_HASH_NAME, messageId, utils_1.now().toString()
+                    'hset', this.MQ_HASH_NAME, messageId, timeNow
                 ]);
                 cmds.push([
                     'get', `${this.keyHeader}-${messageId}`
                 ]);
             }
-            const endResults = yield this.redis.multi(cmds).exec();
+            const dataResults = yield this.redis.multi(cmds).exec();
             const list = [];
-            for (let i = 1; i < endResults.length; i += 2) {
-                const data = this.unpackMessage(endResults[i][1]);
+            for (let i = 1; i < dataResults.length; i += 2) {
+                const data = this.unpackMessage(dataResults[i][1]);
                 const messageId = realResults[(i - 1) / 2];
-                if (data) { // 目前存在 BUG 导致可能 message data 为空
+                if (data && messageId) { // 目前存在 BUG 导致可能 message data 为空
                     data.messageId = messageId;
                     list.push(data);
                 }
@@ -284,10 +288,76 @@ class RedisMethod {
             return list;
         });
     }
-    initTimeAndRpush(messageId) {
+    initTimeAndRpush(messageId, pushLeft = false) {
         return __awaiter(this, void 0, void 0, function* () {
             yield this.redis.hset(this.MQ_HASH_NAME, messageId, '');
-            yield this.redis.rpush(this.MQ_NAME, messageId);
+            if (pushLeft) {
+                yield this.redis.lpush(this.MQ_NAME, messageId);
+            }
+            else {
+                yield this.redis.rpush(this.MQ_NAME, messageId);
+            }
+        });
+    }
+    orderConsumeLock() {
+        return __awaiter(this, void 0, void 0, function* () {
+            let status = false;
+            const num = yield this.redis.incr(this.LOCK_ORDER_KEY);
+            if (num === 1) {
+                status = true;
+            }
+            yield this.expire(this.LOCK_ORDER_KEY, this.lockExpireTime);
+            return status;
+        });
+    }
+    orderConsumeUnlock() {
+        return __awaiter(this, void 0, void 0, function* () {
+            yield this.redis.del(this.LOCK_ORDER_KEY);
+        });
+    }
+    initOrderConsumeIds(ids) {
+        return __awaiter(this, void 0, void 0, function* () {
+            if (!ids.length) {
+                return;
+            }
+            yield this.redis.set(this.ORDER_CONSUME_SELECTED, ids.join('|'));
+            yield this.expire(this.ORDER_CONSUME_SELECTED, this.lockExpireTime);
+            return;
+        });
+    }
+    setOrderConsumerAckedIds(ids) {
+        return __awaiter(this, void 0, void 0, function* () {
+            if (!ids.length) {
+                return;
+            }
+            yield this.redis.set(this.ORDER_CONSUME_ACKED, ids.join('|'));
+            yield this.expire(this.ORDER_CONSUME_ACKED, this.lockExpireTime);
+            return;
+        });
+    }
+    getOrderConsumerInfo() {
+        return __awaiter(this, void 0, void 0, function* () {
+            const cmds = [
+                ['get', this.ORDER_CONSUME_SELECTED],
+                ['get', this.ORDER_CONSUME_ACKED]
+            ];
+            const results = yield this.redis.multi(cmds).exec();
+            const selectedIds = results[0].split('|');
+            const ackedIds = results[0].split('|');
+            return {
+                selectedIds,
+                ackedIds
+            };
+        });
+    }
+    cleanOrderConsumer() {
+        return __awaiter(this, void 0, void 0, function* () {
+            const cmds = [
+                ['del', this.ORDER_CONSUME_SELECTED],
+                ['del', this.ORDER_CONSUME_ACKED],
+                ['del', this.LOCK_ORDER_KEY]
+            ];
+            yield this.redis.multi(cmds).exec();
         });
     }
 }

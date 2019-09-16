@@ -72,12 +72,14 @@ export default class RedisMessage {
      * @param {string} messageId messageId
      */
     _handleFailedMessage(messageId: string): Promise<void>;
-    _pullMessage(): Promise<void>;
+    _pullMessage(): Promise<number>;
     /**
      * 获取 messgae 数据
      * @return {boolean} 是否成功 pull
      */
-    pullMessage(mqCount: number): Promise<boolean>;
+    pullMessage(mqCount: number): Promise<boolean | {
+        successItems: number;
+    }>;
     /**
      * 获取单个消息
      * @return {object} 消息  { messageId, data }
@@ -92,10 +94,11 @@ export default class RedisMessage {
      * @param {integer} size 需要获得的消息数量
      * @return {array}  返回消息的数组
      */
-    getMessages(size: number): Promise<{
+    getMessages(size: number): Promise<Required<{
+        messageId?: string | undefined;
         msgType: string;
         data: messageData;
-    }[]>;
+    }>[]>;
     /**
      * 成功消费消息或者失败消费消息
      * @param {string|array} messageIds 消息 id 或消息 id 数组

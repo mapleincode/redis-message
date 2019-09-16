@@ -102,7 +102,7 @@ describe('redis message', function () {
         fetchMessageLengthLimit = 5;
 
         const result = await redisMessage.pullMessage(0);
-        result.should.equal(true);
+        result.should.deepEqual({ successItems: 5 });
         const msgLength = await redis.messageCount();
         msgLength.should.equal(5);
     });

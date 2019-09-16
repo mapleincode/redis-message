@@ -4,6 +4,7 @@
  */
 'use strict';
 
+import _ from 'lodash';
 import RedisMethod, { RedisMethodOptions, messageData } from './redis-method';
 import { now, sleep } from './utils';
 import defaultLogger from './logger';
@@ -236,13 +237,15 @@ export default class RedisMessage {
 
         // 初始化调用时间
         // 重新 push 到队列中
-        await this.redis.initTimeAndRpush(messageId);
+        // 如果是顺序消费，就是从左边进行 push
+        await this.redis.initTimeAndRpush(messageId, this.options.orderConsumption);
     }
 
     async _pullMessage() {
         const list = await this.fetchMessage();
 
         let offset: number|undefined;
+        let successItems = 0;
 
         try {
             for (const msg of list) {
@@ -255,6 +258,7 @@ export default class RedisMessage {
 
                 // 更新 offset
                 offset = id + 1;
+                successItems ++;
             }
         } catch (err) {
             this.logger.error(err);
@@ -265,6 +269,7 @@ export default class RedisMessage {
             noChange: !offset
         });
         await this.redis.cleanPullLock();
+        return successItems;
     }
     /**
      * 获取 messgae 数据
@@ -279,7 +284,8 @@ export default class RedisMessage {
         // Async
         if (mqCount === 0) {
             // 如果不 pull 数据可能为 0,所以还是等 pull message 完成再返回消息
-            await self._pullMessage(); // 直接 pull
+            const successItems = await self._pullMessage(); // 直接 pull
+            return { successItems: successItems };
         } else {
             // 如果数据总不是不是 0 ，那就异步 pull message。先返回消息。保证消息的延迟。
             setTimeout(function () {
@@ -318,28 +324,83 @@ export default class RedisMessage {
 
         const mqCount = await this.redis.messageCount();
 
+        let fetchStatus;
+        // 如果实际拥有的 count 数小于实际的数量
         if (mqCount < this.options.minRedisMessageCount) {
-            const status = await this.pullMessage(mqCount); // async
-            if (status === false) {
-                // 没有更新
+            fetchStatus = await this.pullMessage(mqCount); // async
+            if (!fetchStatus) {
+                // 说明有个进程可能已经在获取了
+                // 这时候应该等待
                 await sleep(500);
             }
         }
+
+        // 如果返回的是 object 说明是同步请求
+        // 可以获取最后更新的值，根据更新的数量来决定最后的请求
+        // 可以变相减少对 redis 的请求压力
+        if (typeof fetchStatus === 'object') {
+            const { successItems } = fetchStatus;
+
+            // 更新数量为 0 直接返回空数组
+            if (successItems === 0) {
+                return [];
+            }
+
+            // 更新数量 < 实际请求的数量
+            if (successItems > 0 && successItems < size) {
+                size = successItems;
+            }
+        }
+
+        // 从 redis 获取
         const list = await this.redis.fetchMultiMessage(size);
+
+        // if (this.options.orderConsumption) {
+        //     // 顺序请求
+        //     // 需要记录本次获取的 ids
+        //     this.setOrderConsumeIds(list);
+        // }
+
         return list;
     }
+
+    // /**
+    //  * 顺序消费
+    //  */
+    // async orderConsumeLock() {
+    //     const status = await this.redis.orderConsumeLock();
+    //     return status;
+    // }
+
+    // /**
+    //  * 
+    //  * @param ids 消费的 ids
+    //  */
+    // async setOrderConsumeIds(items: { messageId: string }[]) {
+    //     const ids = items.map(item => item.messageId);
+    //     await this.redis.initOrderConsumeIds(ids);
+    // }
+
+    // async ackOrderConsumeIds(items: { messageId: string, success: boolean }[]) {
+    // }
+
+    // async cleanOrderConsume() {
+    //     await this.redis.cleanOrderConsumer();
+    // }
 
     /**
      * 成功消费消息或者失败消费消息
      * @param {string|array} messageIds 消息 id 或消息 id 数组
      * @param {boolean} success boolean 是否是成功
      */
-    async ackMessages(messageIds: string[]|ackItem[]|string, success?: boolean) {
+    async ackMessages(messageIds: string[] | ackItem[] | string, success?: boolean) {
         if (typeof messageIds === 'string') {
             messageIds = [ messageIds ];
         } 
 
-        debug(`获得消息的数量为: ${messageIds.length}`);
+        debug(`获得消息的数量为: ${messageIds && messageIds.length}`);
+
+        const processdItems: { messageId: string, success: boolean }[] = [];
 
         for (const messageId of messageIds) {
             let _messageId: string|undefined;
@@ -363,25 +424,43 @@ export default class RedisMessage {
                 continue;
             }
 
-            const time = await this.redis.getTime(_messageId);
+            processdItems.push({
+                success: _success,
+                messageId: _messageId
+            });
+        }
+
+        // if (this.options.orderConsumption) {
+        //     // 顺序消费处理 ack 逻辑
+
+        //     const ids = processdItems.filter(item => item.success).map(item => item.messageId);
+
+        //     this.ackOrderConsumeIds(ids);
+        //     return;
+        // }
+
+        for(const item of processdItems) {
+            let { messageId, success } = item;
+
+            const time = await this.redis.getTime(messageId);
             if (!time) {
                 // 已超时被处理
-                const existsStatus = await this.redis.checkTimeExists(_messageId);
+                const existsStatus = await this.redis.checkTimeExists(messageId);
                 if (existsStatus) {
-                    debug(`messageId: ${_messageId} 超时被置为  null`);
+                    debug(`messageId: ${messageId} 超时被置为  null`);
                     continue;
                 }
-                debug(`messageId: ${_messageId} 没有 time`);
-                _success = true;
+                debug(`messageId: ${messageId} 没有 time`);
+                success = true;
             }
 
-            if (_success) {
-                debug(`messageId: ${_messageId} 设置成功`);
-                await this.redis.cleanMsg(_messageId);
+            if (success) {
+                debug(`messageId: ${messageId} 设置成功`);
+                await this.redis.cleanMsg(messageId);
             } else {
-                debug(`messageId: ${_messageId} 没有 time`);
-                debug(`messageId: ${_messageId} 设置失败`);
-                await this._handleFailedMessage(_messageId);
+                debug(`messageId: ${messageId} 没有 time`);
+                debug(`messageId: ${messageId} 设置失败`);
+                await this._handleFailedMessage(messageId);
             }
         }
     }

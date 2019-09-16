@@ -11,6 +11,7 @@ export declare type objectData = {
 };
 export declare type messageData = string | objectData;
 declare type redisMessageData = {
+    messageId?: string;
     msgType: string;
     data: messageData;
 };
@@ -25,6 +26,9 @@ export default class RedisMethod {
     private MQ_HASH_RETRY_TIMES;
     private LOCK_PULL_KEY;
     private LOCK_CHECK_KEY;
+    private LOCK_ORDER_KEY;
+    private ORDER_CONSUME_SELECTED;
+    private ORDER_CONSUME_ACKED;
     constructor(redis: Redis, options: RedisMethodOptions);
     private packMessage;
     private unpackMessage;
@@ -33,7 +37,7 @@ export default class RedisMethod {
      * @param {string} key key
      * @param {integer} timestamp 时间戳
      */
-    _expire(key: string, timestamp: number): Promise<import("v8").DoesZapCodeSpaceFlag>;
+    private expire;
     /**
      * 返回消息队列的总数
      * @return {integer} count
@@ -72,7 +76,16 @@ export default class RedisMethod {
     cleanMsg(messageId: string): Promise<void>;
     pushMessage(id: number, data: messageData, msgType: string): Promise<void>;
     fetchMessageAndSetTime(messageId: string): Promise<redisMessageData>;
-    fetchMultiMessage(size: number): Promise<redisMessageData[]>;
-    initTimeAndRpush(messageId: string): Promise<void>;
+    fetchMultiMessage(size: number): Promise<Required<redisMessageData>[]>;
+    initTimeAndRpush(messageId: string, pushLeft?: boolean): Promise<void>;
+    orderConsumeLock(): Promise<boolean>;
+    orderConsumeUnlock(): Promise<void>;
+    initOrderConsumeIds(ids: string[]): Promise<void>;
+    setOrderConsumerAckedIds(ids: string[]): Promise<void>;
+    getOrderConsumerInfo(): Promise<{
+        selectedIds: string[];
+        ackedIds: string[];
+    }>;
+    cleanOrderConsumer(): Promise<void>;
 }
 export {};

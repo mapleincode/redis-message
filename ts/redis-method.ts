@@ -15,6 +15,7 @@ export type objectData = {
 export type messageData = string|objectData;
 
 type redisMessageData = {
+    messageId?: string;
     msgType: string;
     data: messageData;
 };
@@ -32,6 +33,9 @@ export default class RedisMethod {
     private MQ_HASH_RETRY_TIMES: string;
     private LOCK_PULL_KEY: string;
     private LOCK_CHECK_KEY: string;
+    private LOCK_ORDER_KEY: string;
+    private ORDER_CONSUME_SELECTED: string;
+    private ORDER_CONSUME_ACKED: string;
 
     constructor(redis: Redis, options: RedisMethodOptions) {
         this.redis = redis;
@@ -52,6 +56,10 @@ export default class RedisMethod {
         this.MQ_HASH_RETRY_TIMES = `${this.keyHeader}-${topic}-redis-retry-hash`;
         this.LOCK_PULL_KEY = `${this.keyHeader}-${topic}-pull-lock`;
         this.LOCK_CHECK_KEY = `${this.keyHeader}-${topic}-check-lock`;
+        this.LOCK_ORDER_KEY = `${this.keyHeader}-${topic}-order-lock`;
+        this.ORDER_CONSUME_SELECTED = `${this.keyHeader}-${topic}-order-consume-selected`;
+        this.ORDER_CONSUME_ACKED = `${this.keyHeader}-${topic}-order-consume-acked`;
+
     }
 
     private packMessage(data: messageData, msgType: string) {
@@ -71,7 +79,7 @@ export default class RedisMethod {
     }
 
     private unpackMessage(jsonStr: string) {
-        let data: messageData;
+        let data: redisMessageData;
 
         try {
             data = JSON.parse(jsonStr);
@@ -81,7 +89,7 @@ export default class RedisMethod {
                 data: jsonStr
             };
         }
-        return data as redisMessageData;
+        return data;
     }
 
     /**
@@ -89,7 +97,7 @@ export default class RedisMethod {
      * @param {string} key key
      * @param {integer} timestamp 时间戳
      */
-    async _expire(key: string, timestamp: number) {
+    private async expire(key: string, timestamp: number) {
         return await this.redis.expire(key, timestamp);
     }
     /**
@@ -107,7 +115,7 @@ export default class RedisMethod {
     async setPullLock() {
         const value = await this.redis.incr(this.LOCK_PULL_KEY);
         if(value === 1) {
-            await this._expire(this.LOCK_PULL_KEY, this.lockExpireTime);
+            await this.expire(this.LOCK_PULL_KEY, this.lockExpireTime);
             return true;
         }
         return false;
@@ -122,7 +130,7 @@ export default class RedisMethod {
     async setCheckLock() {
         const value = await this.redis.incr(this.LOCK_CHECK_KEY);
         if(value === 1) {
-            await this._expire(this.LOCK_CHECK_KEY, this.lockExpireTime);
+            await this.expire(this.LOCK_CHECK_KEY, this.lockExpireTime);
             return true;
         }
         return false;
@@ -265,39 +273,106 @@ export default class RedisMethod {
             ]);
         }
 
-        const results: objectData[][] = await this.redis.multi(cmds).exec();
+        const results: string[][] = await this.redis.multi(cmds).exec();
+
         const realResults = results.map(r => r[1]).filter(r => !!r);
+
         if(!realResults.length) return [];
 
         cmds = [];
+
+        const timeNow = now().toString();
 
         for(const messageId of realResults) {
             if (typeof messageId !== 'string') {
                 continue;
             }
             cmds.push([
-                'hset', this.MQ_HASH_NAME, messageId, now().toString()
+                'hset', this.MQ_HASH_NAME, messageId, timeNow
             ]);
             cmds.push([
                 'get', `${this.keyHeader}-${messageId}`
             ]);
         }
-        const endResults = await this.redis.multi(cmds).exec();
+        const dataResults = await this.redis.multi(cmds).exec();
         const list = [];
-        for(let i = 1; i < endResults.length; i += 2) {
-            const data = this.unpackMessage(endResults[i][1]);
+        for(let i = 1; i < dataResults.length; i += 2) {
+            const data = this.unpackMessage(dataResults[i][1]);
             const messageId = realResults[ (i - 1) / 2 ];
             
-            if(data) { // 目前存在 BUG 导致可能 message data 为空
-                (data as { [key: string]: any }).messageId = messageId;
-                list.push(data);
+            if(data && messageId) { // 目前存在 BUG 导致可能 message data 为空
+                data.messageId = messageId;
+                list.push(data as Required<redisMessageData>);
             }
         }
         return list;
     }
 
-    async initTimeAndRpush(messageId: string) {
+    async initTimeAndRpush(messageId: string, pushLeft: boolean = false) {
         await this.redis.hset(this.MQ_HASH_NAME, messageId, '');
-        await this.redis.rpush(this.MQ_NAME, messageId);
+
+        if (pushLeft) {
+            await this.redis.lpush(this.MQ_NAME, messageId);
+        } else {
+            await this.redis.rpush(this.MQ_NAME, messageId);
+        }
+        
+    }
+
+    async orderConsumeLock() {
+        let status = false;
+        const num = await this.redis.incr(this.LOCK_ORDER_KEY);
+        if (num === 1) {
+            status = true;
+        }
+        await this.expire(this.LOCK_ORDER_KEY, this.lockExpireTime);
+        return status;
+    }
+
+    async orderConsumeUnlock() {
+        await this.redis.del(this.LOCK_ORDER_KEY);
+    }
+
+    async initOrderConsumeIds(ids: string[]) {
+        if (!ids.length) {
+            return;
+        }
+        await this.redis.set(this.ORDER_CONSUME_SELECTED, ids.join('|'));
+        await this.expire(this.ORDER_CONSUME_SELECTED, this.lockExpireTime);
+        return;
+    }
+
+    async setOrderConsumerAckedIds(ids: string[]) {
+        if (!ids.length) {
+            return;
+        }
+        await this.redis.set(this.ORDER_CONSUME_ACKED, ids.join('|'));
+        await this.expire(this.ORDER_CONSUME_ACKED, this.lockExpireTime);
+        return;
+    }
+
+    async getOrderConsumerInfo() {
+        const cmds = [
+            [ 'get', this.ORDER_CONSUME_SELECTED ],
+            [ 'get', this.ORDER_CONSUME_ACKED ]
+        ];
+        const results: string[] = await this.redis.multi(cmds).exec();
+
+        const selectedIds = results[0].split('|');
+        const ackedIds = results[0].split('|');
+
+        return {
+            selectedIds,
+            ackedIds
+        };
+    }
+
+    async cleanOrderConsumer() {
+        const cmds = [
+            [ 'del', this.ORDER_CONSUME_SELECTED ],
+            [ 'del', this.ORDER_CONSUME_ACKED ],
+            [ 'del', this.LOCK_ORDER_KEY ]
+        ]
+        await this.redis.multi(cmds).exec();
     }
 }
