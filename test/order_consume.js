@@ -184,5 +184,32 @@ describe('order consume', function() {
         datas.should.be.an.Array();
         datas.should.have.length(1);
     });
+
+    it('check without error', async function() {
+        fetchMessageLengthLimit = 4;
+        let datas = await redisMessage.getMessages(1);
+
+        datas.should.be.an.Array();
+        datas.should.have.length(1);
+        await redisMessage.ackMessages(true);
+
+        const { missingList, timeoutList } = await redisMessage.checkExpireMessage(false);
+        missingList.length.should.equal(0);
+        timeoutList.length.should.equal(0);
+    });
+
+    it('check with no ack', async function() {
+        it('check without error', async function() {
+            fetchMessageLengthLimit = 4;
+            let datas = await redisMessage.getMessages(1);
+    
+            datas.should.be.an.Array();
+            datas.should.have.length(1);
+    
+            const { missingList, timeoutList } = await redisMessage.checkExpireMessage(false);
+            missingList.length.should.equal(0);
+            timeoutList.length.should.equal(0);
+        });
+    });
     
 });

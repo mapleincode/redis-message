@@ -98,7 +98,7 @@ export default class RedisMessage {
         messageId?: string | undefined;
         msgType: string;
         data: messageData;
-    }>[]>;
+    }>[] | undefined>;
     private ackNormalMessages;
     /**
      * 成功消费消息或者失败消费消息
@@ -106,11 +106,19 @@ export default class RedisMessage {
      * @param {boolean} success boolean 是否是成功
      */
     ackMessages(messageIds: string[] | ackItem[] | string | boolean, allSuccess?: boolean): Promise<void>;
+    fixNormalMessage(missingList: string[], timeoutList: string[]): Promise<{
+        timeoutList: string[];
+        missingList: string[];
+    }>;
+    fixOrderMessage(missingList: string[], timeoutList: string[]): Promise<{
+        timeoutList: string[];
+        missingList: string[];
+    }>;
     /**
      * 1. 检查消息是否有异常
      * 2. 检查消息消费是否超时
      */
-    checkExpireMessage(): Promise<{
+    checkExpireMessage(sleepStatus?: boolean): Promise<{
         timeoutList: string[];
         missingList: string[];
     } | undefined>;

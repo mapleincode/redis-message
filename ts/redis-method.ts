@@ -231,8 +231,18 @@ export default class RedisMethod {
         }
     }
 
+    async cleanMuliMsg(messageIds: string[]) {
+        const cmds = [];
+        for (const messageId of messageIds) {
+            cmds.push([ 'hdel', this.MQ_HASH_RETRY_TIMES,  messageId ]); // 删除失败次数 // await this.redis.delFailedTimes(messageId);
+            cmds.push([ 'hdel', this.MQ_HASH_NAME, messageId ]); // 清理时间 key // await this.redis.cleanTime(messageId);
+            cmds.push([ 'del',  `${this.keyHeader}-${messageId}` ]); // 删除 message 详情 // await this.redis.delDetail(messageId);)
+        }
+        await this.redis.multi(cmds).exec();
+    }
+
     async cleanMsg(messageId: string) {
-        const results = await this.redis.multi([
+        await this.redis.multi([
             [ 'hdel', this.MQ_HASH_RETRY_TIMES,  messageId ], // 删除失败次数 // await this.redis.delFailedTimes(messageId);
             [ 'hdel', this.MQ_HASH_NAME, messageId ], // 清理时间 key // await this.redis.cleanTime(messageId);
             [ 'del',  `${this.keyHeader}-${messageId}` ], // 删除 message 详情 // await this.redis.delDetail(messageId);
@@ -331,7 +341,7 @@ export default class RedisMethod {
         if (num === 1) {
             status = true;
         }
-        await this.expire(this.LOCK_ORDER_KEY, this.lockExpireTime);
+        await this.expire(this.LOCK_ORDER_KEY, this.lockExpireTime * 5); // 顺序消费，如果存在错误使请求中断，需要完全修复之后才允许重新获取，所以时间设置长一点
         return status;
     }
 

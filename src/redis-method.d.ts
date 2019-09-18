@@ -72,9 +72,14 @@ export default class RedisMethod {
     delFailedTimes(messageId: string): Promise<any>;
     multi(options: (string)[][]): Promise<any>;
     cleanFailedMsg(messageId: string): Promise<redisMessageData>;
+    cleanMuliMsg(messageIds: string[]): Promise<void>;
     cleanMsg(messageId: string): Promise<void>;
     pushMessage(id: number, data: messageData, msgType: string): Promise<void>;
     fetchMessageAndSetTime(messageId: string): Promise<redisMessageData>;
+    /**
+     * 获取多个数据
+     * @param size number 需要获取的消息数量
+     */
     fetchMultiMessage(size: number): Promise<Required<redisMessageData>[]>;
     initTimeAndRpush(messageId: string, pushLeft?: boolean): Promise<void>;
     orderConsumeLock(): Promise<boolean>;

@@ -72,8 +72,7 @@ class RedisMessage {
          } = options;
         const subFuncOptions = {
             topic: topic,
-            messageType: messageType,
-            test: '123'
+            messageType: messageType
         };
         this.options = {
             topic,
@@ -251,12 +250,15 @@ class RedisMessage {
             if (!size || size < 1) {
                 size = 1;
             }
-            debug(`设置需要获取 ${size} 条数据`);
+            debug(`get messages: 需要获取 ${size} 条数据`);
             if (this.options.orderConsumption) {
                 const status = yield this.orderConsumeLock();
                 if (!status) {
-                    debug(`顺序消费，消费还未结束，status: ${status}`);
+                    debug(`顺序消费:set lock fail:status: ${status}`);
                     return [];
+                }
+                else {
+                    debug('顺序消费:set lock success');
                 }
             }
             const mqCount = yield this.redis.messageCount();
@@ -285,12 +287,30 @@ class RedisMessage {
                     size = successItems;
                 }
             }
-            // 从 redis 获取
-            const list = yield this.redis.fetchMultiMessage(size);
-            if (this.options.orderConsumption) {
-                // 顺序请求
-                // 需要记录本次获取的 ids
-                this.setOrderConsumeIds(list);
+            let list;
+            try {
+                // 从 redis 获取
+                list = yield this.redis.fetchMultiMessage(size);
+                if (this.options.orderConsumption) {
+                    // 顺序请求
+                    // 需要记录本次获取的 ids
+                    try {
+                        yield this.setOrderConsumeIds(list);
+                    }
+                    catch (err) {
+                        this.logger.error(err);
+                        yield this.setOrderConsumeIds(list);
+                    }
+                }
+            }
+            catch (err) {
+                if (this.options.orderConsumption) {
+                    yield this.checkExpireMessage(false); // 清理数据
+                    yield this.cleanOrderConsume(); // 解锁
+                }
+                else {
+                    throw err;
+                }
             }
             return list;
         });
@@ -327,10 +347,14 @@ class RedisMessage {
                     // 已超时被处理
                     const existsStatus = yield this.redis.checkTimeExists(messageId);
                     if (existsStatus) {
-                        debug(`messageId: ${messageId} 超时被置为  null`);
+                        debug(`messageId: ${messageId} 超时被置为空字符串`);
+                        // 已经被初始化了
                         continue;
                     }
                     debug(`messageId: ${messageId} 没有 time`);
+                    // 如果 existsStatus 说明已经被消费掉了
+                    // 可以不做处理
+                    // 这里选择的是再删一次
                     success = true;
                 }
                 if (success) {
@@ -353,46 +377,15 @@ class RedisMessage {
     ackMessages(messageIds, allSuccess = true) {
         return __awaiter(this, void 0, void 0, function* () {
             if (typeof messageIds === 'boolean') {
-                return yield this.ackOrderMessages(messageIds);
+                allSuccess = messageIds;
+                return yield this.ackOrderMessages(allSuccess);
             }
             return yield this.ackNormalMessages(messageIds, allSuccess);
         });
     }
     // ======================= 检查脚本 ================================
-    /**
-     * 1. 检查消息是否有异常
-     * 2. 检查消息消费是否超时
-     */
-    checkExpireMessage() {
+    fixNormalMessage(missingList, timeoutList) {
         return __awaiter(this, void 0, void 0, function* () {
-            // 关门打狗
-            const status = yield this.redis.setCheckLock();
-            if (!status)
-                return;
-            // 已有的消息的数量
-            const mqCount = yield this.redis.messageCount();
-            // mq 里所有的 messageId s
-            const mqMessages = yield this.redis.getMessageList(0, mqCount + this.options.eachMessageCount);
-            // hash map
-            const hashMap = yield this.redis.getTimeMap();
-            const missingList = [];
-            const timeoutList = [];
-            const keys = Object.keys(hashMap);
-            for (const key of keys) {
-                yield utils_1.sleep(0);
-                const index = mqMessages.indexOf(key);
-                if (index < 0 && !hashMap[key]) {
-                    // 数据缺失
-                    // queue 不存在， 但是 hashMap 上却被初始化 null
-                    missingList.push(key);
-                }
-                else if (index < 0 && hashMap[key] && (utils_1.now() - hashMap[key]) > this.options.maxAckTimeoutSecords) {
-                    // 数据 ack 超时
-                    // queue 不存在，且超时
-                    timeoutList.push(key);
-                }
-            }
-            yield utils_1.sleep(1000);
             for (const messageId of missingList) {
                 // 这边检查是 HASH 表是否存在
                 // 虽然唯一的可能性是，hashMap 为 null，queue 丢失，那也不排除是因为延迟问题，所以重新检查下 HASHMAP 是否正常
@@ -432,6 +425,104 @@ class RedisMessage {
             };
         });
     }
+    fixOrderMessage(missingList, timeoutList) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const ids = yield this.redis.getSelectedIds();
+            if (ids && ids.length) {
+                const errorMissings = missingList.filter(id => ids.indexOf(id) < 0); // 非本次请求，之前遗留的脏数据
+                const errorTimeouts = timeoutList.filter(id => ids.indexOf(id) < 0); // 非本次请求，之前遗留的脏数据
+                for (const id of errorMissings) {
+                    yield this.redis.cleanMsg(id); // queue 处理 id 比较麻烦，直接删除 detail 之后请求直接会自动剔除
+                }
+                for (const id of errorTimeouts) {
+                    yield this.redis.cleanMsg(id); // 清理数据
+                }
+                missingList = missingList.filter(id => ids.indexOf(id) > -1); // 过滤 id
+                timeoutList = timeoutList.filter(id => ids.indexOf(id) > -1); // 过滤 id
+            }
+            for (const messageId of missingList.reverse()) {
+                // 这边检查是 HASH 表是否存在
+                // 虽然唯一的可能性是，hashMap 为 null，queue 丢失，那也不排除是因为延迟问题，所以重新检查下 HASHMAP 是否正常
+                const existsStatus = yield this.redis.checkTimeExists(messageId);
+                if (!existsStatus) { // 数据延迟问题
+                    continue;
+                }
+                const time = yield this.redis.getTime(messageId);
+                if (time === null) {
+                    // 数据延迟问题，time 已经被删除
+                    // 不需要做操作 
+                    continue;
+                }
+                else if (time) {
+                    // time 存在并且不为空
+                    // 因为考虑到拉取延迟，数据可能刚好在 queue 中被取了数据，但是还没设置 time
+                    // 但是实际已经设置 time 了
+                    // 如果已经超时，就会在下个周期对这个数据进行修复
+                    continue;
+                }
+                // 需要处理的场景是 time 初始化成空字符串的场景
+                // 此时 queue 不存在该 messageId，但 queue 依然为空
+                yield this.redis.lpushMessage(messageId);
+            }
+            for (const messageId of timeoutList.reverse()) {
+                const time = yield this.redis.getTime(messageId);
+                if (!time) { // 数据延迟 -> 非消费中状态
+                    continue;
+                }
+                yield this._handleFailedMessage(messageId);
+            }
+            // 清理锁
+            yield this.redis.cleanCheckLock();
+            return {
+                timeoutList: timeoutList,
+                missingList: missingList
+            };
+        });
+    }
+    /**
+     * 1. 检查消息是否有异常
+     * 2. 检查消息消费是否超时
+     */
+    checkExpireMessage(sleepStatus = true) {
+        return __awaiter(this, void 0, void 0, function* () {
+            // 关门打狗
+            const status = yield this.redis.setCheckLock();
+            if (!status)
+                return;
+            // 已有的消息的数量
+            const mqCount = yield this.redis.messageCount();
+            // mq 里所有的 messageId s
+            const mqMessages = yield this.redis.getMessageList(0, mqCount + this.options.eachMessageCount);
+            // hash map
+            const hashMap = yield this.redis.getTimeMap();
+            const missingList = [];
+            const timeoutList = [];
+            const keys = Object.keys(hashMap);
+            for (const key of keys) {
+                yield utils_1.sleep(0);
+                const index = mqMessages.indexOf(key);
+                if (index < 0 && !hashMap[key]) {
+                    // 数据缺失
+                    // queue 不存在， 但是 hashMap 上却被初始化 null
+                    missingList.push(key);
+                }
+                else if (index < 0 && hashMap[key] && (utils_1.now() - hashMap[key]) > this.options.maxAckTimeoutSecords) {
+                    // 数据 ack 超时
+                    // queue 不存在，且超时
+                    timeoutList.push(key);
+                }
+            }
+            if (sleepStatus) {
+                yield utils_1.sleep(1000);
+            }
+            if (this.options.orderConsumption) {
+                return yield this.fixOrderMessage(missingList, timeoutList);
+            }
+            else {
+                return yield this.fixNormalMessage(missingList, timeoutList);
+            }
+        });
+    }
     // =============== 顺序消费接口 =======================
     /**
      * 顺序消费
@@ -463,20 +554,41 @@ class RedisMessage {
         return __awaiter(this, void 0, void 0, function* () {
             debug('ack order message');
             const ids = yield this.redis.getSelectedIds();
-            for (const messageId of ids.reverse()) {
+            // ack 成功的 messages
+            if (successAll) {
                 try {
-                    if (successAll) {
-                        yield this.redis.cleanMsg(messageId);
-                    }
-                    else {
-                        yield this._handleFailedMessage(messageId);
-                    }
+                    // 事务，要死一起死，要是没处理成功统一 gg
+                    yield this.redis.cleanMuliMsg(ids);
                 }
                 catch (err) {
-                    this.logger.error('ORDER_CONSUME_ACK_FAILED', { err: err, messageId: messageId, successAll });
+                    yield this.checkExpireMessage(); // 失败就调用修复服务
+                    this.logger.error('ORDER_CONSUME_ACK_FAILED', { err: err, messageIds: ids, successAll });
                 }
             }
-            this.cleanOrderConsume();
+            else {
+                // ack 失败的 message
+                for (const messageId of ids.reverse()) {
+                    const time = yield this.redis.getTime(messageId);
+                    if (time === '') {
+                        // 已经被重新初始化
+                        continue;
+                    }
+                    else if (time === null) {
+                        // 已被删除
+                        continue;
+                    }
+                    try {
+                        // 作为失败的 messageId 重新加入队列
+                        yield this._handleFailedMessage(messageId);
+                    }
+                    catch (err) {
+                        yield this.checkExpireMessage(); // 失败就调用修复服务
+                        this.logger.error('ORDER_CONSUME_ACK_FAILED', { err: err, messageId: messageId, successAll });
+                    }
+                }
+            }
+            // 清理 lock
+            yield this.cleanOrderConsume();
         });
     }
     // ========== 管理接口 =============
