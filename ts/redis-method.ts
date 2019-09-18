@@ -262,6 +262,10 @@ export default class RedisMethod {
         return this.unpackMessage(detail);
     }
 
+    /**
+     * 获取多个数据
+     * @param size number 需要获取的消息数量
+     */
     async fetchMultiMessage(size: number) {
         let cmds = [];
         while(size --) {
@@ -269,6 +273,8 @@ export default class RedisMethod {
                 'lpop', this.MQ_NAME
             ]);
         }
+
+        // 因为必须先获取 messageId 之后再获取消息体，如果数据丢失，就需要等数据修复才能恢复数据了。
 
         const results: string[][] = await this.redis.multi(cmds).exec();
 
@@ -280,6 +286,7 @@ export default class RedisMethod {
 
         const timeNow = now().toString();
 
+        // 组装设置 time 和获取 detail 的 cmds
         for(const messageId of realResults) {
             if (typeof messageId !== 'string') {
                 continue;
@@ -291,6 +298,8 @@ export default class RedisMethod {
                 'get', `${this.keyHeader}-${messageId}`
             ]);
         }
+
+        // 事务请求
         const dataResults = await this.redis.multi(cmds).exec();
         const list = [];
         for(let i = 1; i < dataResults.length; i += 2) {
