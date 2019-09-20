@@ -149,6 +149,11 @@ export default class RedisMessage {
             redis // ioredis 实例
         } = options;
 
+        if (!topic) {
+            throw new Error('topic must be existed!');
+        }
+
+
         const subFuncOptions = {
             topic: topic,
             messageType: messageType
