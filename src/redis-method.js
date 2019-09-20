@@ -96,8 +96,13 @@ class RedisMethod {
     setCheckLock() {
         return __awaiter(this, void 0, void 0, function* () {
             const value = yield this.redis.incr(this.LOCK_CHECK_KEY);
-            if (value === 1) {
+            if (value < 5) {
                 yield this.expire(this.LOCK_CHECK_KEY, this.lockExpireTime);
+            }
+            if (value > 100) {
+                yield this.redis.del(this.LOCK_CHECK_KEY);
+            }
+            if (value === 1) {
                 return true;
             }
             return false;

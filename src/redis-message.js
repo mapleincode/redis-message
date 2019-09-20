@@ -493,7 +493,7 @@ class RedisMessage {
             // 关门打狗
             const status = yield this.redis.setCheckLock();
             if (!status)
-                return;
+                return '消费 lock 失败';
             // 已有的消息的数量
             const mqCount = yield this.redis.messageCount();
             // mq 里所有的 messageId s
@@ -511,7 +511,7 @@ class RedisMessage {
                     // queue 不存在， 但是 hashMap 上却被初始化 null
                     missingList.push(key);
                 }
-                else if (index < 0 && hashMap[key] && (utils_1.now() - hashMap[key]) > this.options.maxAckTimeoutSecords) {
+                else if (index < 0 && hashMap[key] && Math.abs(utils_1.now() - hashMap[key]) > this.options.maxAckTimeoutSecords) {
                     // 数据 ack 超时
                     // queue 不存在，且超时
                     timeoutList.push(key);

@@ -118,10 +118,10 @@ export default class RedisMessage {
      * 1. 检查消息是否有异常
      * 2. 检查消息消费是否超时
      */
-    checkExpireMessage(sleepStatus?: boolean): Promise<{
+    checkExpireMessage(sleepStatus?: boolean): Promise<"消费 lock 失败" | {
         timeoutList: string[];
         missingList: string[];
-    } | undefined>;
+    }>;
     /**
      * 顺序消费
      */

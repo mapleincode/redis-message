@@ -614,7 +614,7 @@ export default class RedisMessage {
     async checkExpireMessage(sleepStatus: boolean = true) {
         // 关门打狗
         const status = await this.redis.setCheckLock();
-        if (!status) return;
+        if (!status) return '消费 lock 失败';
 
         // 已有的消息的数量
         const mqCount = await this.redis.messageCount();
@@ -640,7 +640,7 @@ export default class RedisMessage {
 
                 // queue 不存在， 但是 hashMap 上却被初始化 null
                 missingList.push(key);
-            } else if (index < 0 && hashMap[key] && (now() - hashMap[key]) > this.options.maxAckTimeoutSecords) {
+            } else if (index < 0 && hashMap[key] && Math.abs(now() - hashMap[key]) > this.options.maxAckTimeoutSecords) {                
                 // 数据 ack 超时
                 // queue 不存在，且超时
                 timeoutList.push(key);

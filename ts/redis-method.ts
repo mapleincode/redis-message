@@ -126,8 +126,16 @@ export default class RedisMethod {
 
     async setCheckLock() {
         const value = await this.redis.incr(this.LOCK_CHECK_KEY);
-        if(value === 1) {
+
+        if (value < 5) {
             await this.expire(this.LOCK_CHECK_KEY, this.lockExpireTime);
+        }
+
+        if (value > 100) {
+            await this.redis.del(this.LOCK_CHECK_KEY);
+        }
+
+        if(value === 1) {
             return true;
         }
         return false;
