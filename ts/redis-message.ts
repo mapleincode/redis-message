@@ -156,7 +156,8 @@ export default class RedisMessage {
 
         const subFuncOptions = {
             topic: topic,
-            messageType: messageType
+            messageType: messageType,
+            eachMessageCount: eachMessageCount
         };
 
         this.options = {
