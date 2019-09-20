@@ -1,6 +1,6 @@
 # Redis-Message
 
-
+基于 redis 实现简单的队列功能。
 
 ## Install
 
@@ -37,6 +37,11 @@ console.log(await cache.getMessages(10));
 | minRedisMessageCount | redis 维持的最小数量的 message  | 200     |
 | maxRetryTimes        | 消息消费最多失败次数            | 5       |
 | lockExpireTime       | 锁超时时间，单位 s              | 60      |
+| autoAck              | 自动 ack 消费超时之后自动提交   | 0       |
+| orderConsumption     | 顺序消费支持                    | 0       |
+| logger               | logger 函数                     |         |
+| recordFailedMessage  | 是否记录失败的 message          | 1       |
+|                      |                                 |         |
 
 ```js
 const {

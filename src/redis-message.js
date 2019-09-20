@@ -591,6 +591,9 @@ class RedisMessage {
             yield this.cleanOrderConsume();
         });
     }
+    isOrderConsumption() {
+        return this.options.orderConsumption;
+    }
     // ========== 管理接口 =============
     __messageUnconsumed() {
         return __awaiter(this, void 0, void 0, function* () {

@@ -718,6 +718,10 @@ export default class RedisMessage {
         await this.cleanOrderConsume();
     }
 
+    isOrderConsumption() {
+        return this.options.orderConsumption;
+    }
+
     // ========== 管理接口 =============
 
     async __messageUnconsumed() {

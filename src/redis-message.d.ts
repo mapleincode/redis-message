@@ -133,6 +133,7 @@ export default class RedisMessage {
     private setOrderConsumeIds;
     private cleanOrderConsume;
     private ackOrderMessages;
+    isOrderConsumption(): boolean;
     __messageUnconsumed(): Promise<{
         itemsLength: number;
         items: any;
