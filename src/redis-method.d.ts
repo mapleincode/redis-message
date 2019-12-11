@@ -59,7 +59,9 @@ export default class RedisMethod {
     rpushMessage(messageId: string): Promise<any>;
     getMessageList(offset?: number, size?: number): Promise<any>;
     setTime(messageId: string): Promise<import("v8").DoesZapCodeSpaceFlag>;
-    getTimeMap(): Promise<any>;
+    getTimeMap(): Promise<{
+        [key: string]: any;
+    }>;
     checkTimeExists(messageId: string): Promise<import("v8").DoesZapCodeSpaceFlag>;
     getTime(messageId: string): Promise<string | null>;
     cleanTime(messageId: string): Promise<any>;

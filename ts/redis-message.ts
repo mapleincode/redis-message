@@ -41,6 +41,10 @@ type handleFailedMessageFunc = {
     (messageId: string, data: messageData|string): Promise<void>;
 }
 
+type dealTimeoutMessageFunc = {
+    (timeoutList: string[]): Promise<void>
+}
+
 type loggerFunc = {
     warn: Function,
     error: Function,
@@ -71,12 +75,14 @@ export interface redisMessageOptions extends baseMessageOptions, Partial<extraMe
     afterFetchMessage?: subFunc<afterFetchMessageFunc>;
     dealFailedMessage?: subFunc<handleFailedMessageFunc>;
     handleFailedMessage?: subFunc<handleFailedMessageFunc>;
+    dealTimeoutMessage?: subFunc<dealTimeoutMessageFunc>
 };
 
 interface redisMessagePrivateOptions extends baseMessageOptions, extraMessageOptions {
     fetchMessage: fetchMessageFunc;
     afterFetchMessage: afterFetchMessageFunc;
     handleFailedMessage: handleFailedMessageFunc;
+    dealTimeoutMessage: dealTimeoutMessageFunc;
     maxAckTimeoutSecords: number;
 };
 
@@ -95,6 +101,7 @@ export default class RedisMessage {
     private handleFailedMessage: handleFailedMessageFunc;
     private redis: RedisMethod;
     private logger: loggerFunc;
+    private dealTimeoutMessage: dealTimeoutMessageFunc;
 
     constructor(options: redisMessageOptions) {
         const {
@@ -143,7 +150,12 @@ export default class RedisMessage {
                 };
             },
             handleFailedMessage,
-
+            dealTimeoutMessage = function(/**{ topic, messageType } */) {
+                // const { topic, messageType } = options;
+                return async function(/*ids = []*/) {
+                    return;
+                }
+            },
             // ================== other =======================
             logger = defaultLogger, // logger
             redis // ioredis 实例
@@ -187,7 +199,8 @@ export default class RedisMessage {
             // 3. failed msg deal
             fetchMessage: fetchMessage(subFuncOptions),
             afterFetchMessage: afterFetchMessage(subFuncOptions),
-            handleFailedMessage: handleFailedMessage ? handleFailedMessage(subFuncOptions) : dealFailedMessage(subFuncOptions)
+            handleFailedMessage: handleFailedMessage ? handleFailedMessage(subFuncOptions) : dealFailedMessage(subFuncOptions),
+            dealTimeoutMessage: dealTimeoutMessage(subFuncOptions)
         };
 
         // 顺序消费模式
@@ -207,6 +220,7 @@ export default class RedisMessage {
         this.fetchMessage = this.options.fetchMessage;
         this.afterFetchMessage = this.options.afterFetchMessage;
         this.handleFailedMessage = this.options.handleFailedMessage;
+        this.dealTimeoutMessage = this.options.dealTimeoutMessage;
 
         // ioredis 实例
         this.redis = new RedisMethod(this.options.redis, this.options);
@@ -531,13 +545,27 @@ export default class RedisMessage {
             await this.redis.rpushMessage(messageId);
         }
 
+        const realTimeoutList: string[] = []; // 超时队列
+
         for (const messageId of timeoutList) {
             const time = await this.redis.getTime(messageId);
             if (!time) { // 数据延迟 -> 非消费中状态
                 continue;
             }
+            realTimeoutList.push(messageId); // 推入超时 messageId 消息
             await this._handleFailedMessage(messageId);
         }
+
+        try {
+            if (realTimeoutList.length) {
+                await this.dealTimeoutMessage(realTimeoutList);
+            }
+            
+        } catch(err) {
+            console.error(err);
+        }
+
+
         // 清理锁
         await this.redis.cleanCheckLock();
         return {
@@ -634,7 +662,6 @@ export default class RedisMessage {
             await sleep(0);
             const index = mqMessages.indexOf(key);
 
-            
             if (index < 0 && !hashMap[key]) {
                 // 数据缺失
 

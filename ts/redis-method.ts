@@ -170,7 +170,7 @@ export default class RedisMethod {
     }
 
     async getTimeMap() {
-        return await this.redis.hgetall(this.MQ_HASH_NAME);
+        return await this.redis.hgetall(this.MQ_HASH_NAME) as { [key: string]: any };
     }
 
     async checkTimeExists(messageId: string) {

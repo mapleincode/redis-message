@@ -24,6 +24,9 @@ declare type afterFetchMessageFunc = {
 declare type handleFailedMessageFunc = {
     (messageId: string, data: messageData | string): Promise<void>;
 };
+declare type dealTimeoutMessageFunc = {
+    (timeoutList: string[]): Promise<void>;
+};
 declare type loggerFunc = {
     warn: Function;
     error: Function;
@@ -51,6 +54,7 @@ export interface redisMessageOptions extends baseMessageOptions, Partial<extraMe
     afterFetchMessage?: subFunc<afterFetchMessageFunc>;
     dealFailedMessage?: subFunc<handleFailedMessageFunc>;
     handleFailedMessage?: subFunc<handleFailedMessageFunc>;
+    dealTimeoutMessage?: subFunc<dealTimeoutMessageFunc>;
 }
 interface ackItem {
     messageId?: string;
@@ -64,6 +68,7 @@ export default class RedisMessage {
     private handleFailedMessage;
     private redis;
     private logger;
+    private dealTimeoutMessage;
     constructor(options: redisMessageOptions);
     /**
      * 处理失败的 message
@@ -138,6 +143,8 @@ export default class RedisMessage {
         itemsLength: number;
         items: any;
     }>;
-    __messageConsuming(): Promise<any>;
+    __messageConsuming(): Promise<{
+        [key: string]: any;
+    }>;
 }
 export {};

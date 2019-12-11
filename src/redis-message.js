@@ -66,7 +66,14 @@ class RedisMessage {
                     return;
                 });
             };
-        }, handleFailedMessage, 
+        }, handleFailedMessage, dealTimeoutMessage = function ( /**{ topic, messageType } */) {
+            // const { topic, messageType } = options;
+            return function ( /*ids = []*/) {
+                return __awaiter(this, void 0, void 0, function* () {
+                    return;
+                });
+            };
+        }, 
         // ================== other =======================
         logger = logger_1.default, // logger
         redis // ioredis 实例
@@ -103,7 +110,8 @@ class RedisMessage {
             // 3. failed msg deal
             fetchMessage: fetchMessage(subFuncOptions),
             afterFetchMessage: afterFetchMessage(subFuncOptions),
-            handleFailedMessage: handleFailedMessage ? handleFailedMessage(subFuncOptions) : dealFailedMessage(subFuncOptions)
+            handleFailedMessage: handleFailedMessage ? handleFailedMessage(subFuncOptions) : dealFailedMessage(subFuncOptions),
+            dealTimeoutMessage: dealTimeoutMessage(subFuncOptions)
         };
         // 顺序消费模式
         if (this.options.orderConsumption) {
@@ -120,6 +128,7 @@ class RedisMessage {
         this.fetchMessage = this.options.fetchMessage;
         this.afterFetchMessage = this.options.afterFetchMessage;
         this.handleFailedMessage = this.options.handleFailedMessage;
+        this.dealTimeoutMessage = this.options.dealTimeoutMessage;
         // ioredis 实例
         this.redis = new redis_method_1.default(this.options.redis, this.options);
         // logger
@@ -415,12 +424,22 @@ class RedisMessage {
                 // 此时 queue 不存在该 messageId，但 queue 依然为空
                 yield this.redis.rpushMessage(messageId);
             }
+            const realTimeoutList = []; // 超时队列
             for (const messageId of timeoutList) {
                 const time = yield this.redis.getTime(messageId);
                 if (!time) { // 数据延迟 -> 非消费中状态
                     continue;
                 }
+                realTimeoutList.push(messageId); // 推入超时 messageId 消息
                 yield this._handleFailedMessage(messageId);
+            }
+            try {
+                if (realTimeoutList.length) {
+                    yield this.dealTimeoutMessage(realTimeoutList);
+                }
+            }
+            catch (err) {
+                console.error(err);
             }
             // 清理锁
             yield this.redis.cleanCheckLock();
