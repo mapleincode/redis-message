@@ -8,8 +8,12 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 const utils_1 = require("./utils");
+const wm_redis_locks_1 = __importDefault(require("wm-redis-locks"));
 class RedisMethod {
     constructor(redis, options) {
         this.redis = redis;
@@ -25,6 +29,18 @@ class RedisMethod {
         this.LOCK_CHECK_KEY = `${this.keyHeader}-${topic}-check-lock`;
         this.LOCK_ORDER_KEY = `${this.keyHeader}-${topic}-order-lock`;
         this.ORDER_CONSUME_SELECTED = `${this.keyHeader}-${topic}-order-consume-selected`;
+        this.pullLock = new wm_redis_locks_1.default(this.redis, this.LOCK_PULL_KEY, this.lockExpireTime);
+        this.checkLock = new wm_redis_locks_1.default(this.redis, this.LOCK_CHECK_KEY, this.lockExpireTime);
+        this.orderLock = new wm_redis_locks_1.default(this.redis, this.LOCK_ORDER_KEY, this.lockExpireTime);
+    }
+    getPullLock() {
+        return this.pullLock;
+    }
+    getCheckLock() {
+        return this.checkLock;
+    }
+    getOrderLock() {
+        return this.orderLock;
     }
     packMessage(data, msgType) {
         if (typeof data === 'string') {
@@ -77,12 +93,13 @@ class RedisMethod {
      */
     setPullLock() {
         return __awaiter(this, void 0, void 0, function* () {
-            const value = yield this.redis.incr(this.LOCK_PULL_KEY);
-            if (value === 1) {
-                yield this.expire(this.LOCK_PULL_KEY, this.lockExpireTime);
-                return true;
-            }
-            return false;
+            // const value = await this.redis.incr(this.LOCK_PULL_KEY);
+            // if(value === 1) {
+            //     await this.expire(this.LOCK_PULL_KEY, this.lockExpireTime);
+            //     return true;
+            // }
+            // return false;
+            return yield this.pullLock.lock();
         });
     }
     /**
@@ -90,27 +107,30 @@ class RedisMethod {
      */
     cleanPullLock() {
         return __awaiter(this, void 0, void 0, function* () {
-            return yield this.redis.del(this.LOCK_PULL_KEY);
+            // return await this.redis.del(this.LOCK_PULL_KEY);
+            return yield this.pullLock.cleanLock();
         });
     }
     setCheckLock() {
         return __awaiter(this, void 0, void 0, function* () {
-            const value = yield this.redis.incr(this.LOCK_CHECK_KEY);
-            if (value < 5) {
-                yield this.expire(this.LOCK_CHECK_KEY, this.lockExpireTime);
-            }
-            if (value > 100) {
-                yield this.redis.del(this.LOCK_CHECK_KEY);
-            }
-            if (value === 1) {
-                return true;
-            }
-            return false;
+            // const value = await this.redis.incr(this.LOCK_CHECK_KEY);
+            // if (value < 5) {
+            //     await this.expire(this.LOCK_CHECK_KEY, this.lockExpireTime);
+            // }
+            // if (value > 100) {
+            //     await this.redis.del(this.LOCK_CHECK_KEY);
+            // }
+            // if(value === 1) {
+            //     return true;
+            // }
+            // return false;
+            return this.checkLock.lock();
         });
     }
     cleanCheckLock() {
         return __awaiter(this, void 0, void 0, function* () {
-            return yield this.redis.del(this.LOCK_CHECK_KEY);
+            // return await this.redis.del(this.LOCK_CHECK_KEY);
+            return yield this.checkLock.cleanLock();
         });
     }
     lpopMessage() {
@@ -324,18 +344,20 @@ class RedisMethod {
     }
     orderConsumeLock() {
         return __awaiter(this, void 0, void 0, function* () {
-            let status = false;
-            const num = yield this.redis.incr(this.LOCK_ORDER_KEY);
-            if (num === 1) {
-                status = true;
-            }
-            yield this.expire(this.LOCK_ORDER_KEY, this.lockExpireTime * 5); // 顺序消费，如果存在错误使请求中断，需要完全修复之后才允许重新获取，所以时间设置长一点
-            return status;
+            // let status = false;
+            // const num = await this.redis.incr(this.LOCK_ORDER_KEY);
+            // if (num === 1) {
+            //     status = true;
+            // }
+            // await this.expire(this.LOCK_ORDER_KEY, this.lockExpireTime * 5); // 顺序消费，如果存在错误使请求中断，需要完全修复之后才允许重新获取，所以时间设置长一点
+            // return status;
+            return this.orderLock.lock();
         });
     }
     orderConsumeUnlock() {
         return __awaiter(this, void 0, void 0, function* () {
-            yield this.redis.del(this.LOCK_ORDER_KEY);
+            // await this.redis.del(this.LOCK_ORDER_KEY);
+            return this.orderLock.cleanLock();
         });
     }
     initSelectedIds(ids) {

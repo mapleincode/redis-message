@@ -21,11 +21,12 @@
     "@types/pino": "^5.8.10",
     "debug": "^4.1.0",
     "lodash": "^4.17.15",
-    "pino": "^5.13.2"
+    "pino": "^5.13.2",
+    "wm-redis-locks": "^0.0.1"
   },
   "devDependencies": {
     "eslint": "^6.3.0",
-    "ioredis": "^4.14.0",
+    "ioredis": "^4.14.1",
     "mocha": "^6.0.2",
     "should": "^13.2.3",
     "typescript": "^3.6.3"

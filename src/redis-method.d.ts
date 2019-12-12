@@ -1,5 +1,6 @@
 /// <reference types="node" />
 import { Redis } from 'ioredis';
+import RedisLock from 'wm-redis-locks';
 export declare type RedisMethodOptions = {
     topic: string;
     keyHeader?: string;
@@ -28,7 +29,13 @@ export default class RedisMethod {
     private LOCK_CHECK_KEY;
     private LOCK_ORDER_KEY;
     private ORDER_CONSUME_SELECTED;
+    private pullLock;
+    private checkLock;
+    private orderLock;
     constructor(redis: Redis, options: RedisMethodOptions);
+    getPullLock(): RedisLock;
+    getCheckLock(): RedisLock;
+    getOrderLock(): RedisLock;
     packMessage(data: messageData, msgType: string): string;
     unpackMessage(jsonStr: string): redisMessageData;
     /**
@@ -36,7 +43,7 @@ export default class RedisMethod {
      * @param {string} key key
      * @param {integer} timestamp 时间戳
      */
-    expire(key: string, timestamp: number): Promise<import("v8").DoesZapCodeSpaceFlag>;
+    expire(key: string, timestamp: number): Promise<0 | 1>;
     /**
      * 返回消息队列的总数
      * @return {integer} count
@@ -50,9 +57,9 @@ export default class RedisMethod {
     /**
      * 清理 pull 的锁
      */
-    cleanPullLock(): Promise<number>;
+    cleanPullLock(): Promise<void>;
     setCheckLock(): Promise<boolean>;
-    cleanCheckLock(): Promise<number>;
+    cleanCheckLock(): Promise<void>;
     lpopMessage(): Promise<string>;
     lpushMessage(messageId: string): Promise<any>;
     rpopMessage(): Promise<string>;
