@@ -141,6 +141,14 @@ describe('redis method', function() {
             return 2;
         }
 
+        _redis.ttl = function(key) {
+            return -2;
+        }
+
+        _redis.expire = function() {
+
+        }
+
         let lock = await redis.setPullLock();
 
         should(expireTime).be.Null;
@@ -167,7 +175,7 @@ describe('redis method', function() {
         };
 
         const delKey = await redis.cleanPullLock();
-        delKey.should.equal(redis.LOCK_PULL_KEY);
+        should(delKey).equal(undefined);
     });
 
     it('set check lock', async function() {
@@ -181,6 +189,14 @@ describe('redis method', function() {
         _redis.incr = function(key) {
             lockKey = key;
             return 2;
+        }
+
+        _redis.ttl = function(key) {
+            return -2;
+        }
+
+        _redis.expire = function() {
+
         }
 
         let lock = await redis.setCheckLock();
@@ -208,6 +224,6 @@ describe('redis method', function() {
         };
 
         const delKey = await redis.cleanCheckLock();
-        delKey.should.equal(redis.LOCK_CHECK_KEY);
+        should(delKey).equal(undefined);
     });
 });
