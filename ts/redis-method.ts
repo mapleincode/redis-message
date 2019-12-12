@@ -1,5 +1,6 @@
 import { Redis } from 'ioredis';
 import { now } from './utils';
+import RedisLock from 'wm-redis-locks';
 
 export type RedisMethodOptions = {
     topic: string;
@@ -36,6 +37,11 @@ export default class RedisMethod {
     private LOCK_ORDER_KEY: string;
     private ORDER_CONSUME_SELECTED: string;
 
+    // lock key
+    private pullLock: RedisLock;
+    private checkLock: RedisLock;
+    private orderLock: RedisLock;
+
     constructor(redis: Redis, options: RedisMethodOptions) {
         this.redis = redis;
         this.options = options;
@@ -57,6 +63,22 @@ export default class RedisMethod {
         this.LOCK_CHECK_KEY = `${this.keyHeader}-${topic}-check-lock`;
         this.LOCK_ORDER_KEY = `${this.keyHeader}-${topic}-order-lock`;
         this.ORDER_CONSUME_SELECTED = `${this.keyHeader}-${topic}-order-consume-selected`;
+
+        this.pullLock = new RedisLock(this.redis, this.LOCK_PULL_KEY, this.lockExpireTime);
+        this.checkLock = new RedisLock(this.redis, this.LOCK_CHECK_KEY, this.lockExpireTime);
+        this.orderLock = new RedisLock(this.redis, this.LOCK_ORDER_KEY, this.lockExpireTime);
+    }
+
+    getPullLock() {
+        return this.pullLock;
+    }
+
+    getCheckLock() {
+        return this.checkLock;
+    }
+
+    getOrderLock() {
+        return this.orderLock;
     }
 
     packMessage(data: messageData, msgType: string) {
@@ -94,14 +116,14 @@ export default class RedisMethod {
      * @param {string} key key
      * @param {integer} timestamp 时间戳
      */
-    async expire(key: string, timestamp: number) {
+    async expire(key: string, timestamp: number): Promise<0 | 1> {
         return await this.redis.expire(key, timestamp);
     }
     /**
      * 返回消息队列的总数
      * @return {integer} count
      */
-    async messageCount() {
+    async messageCount(): Promise<number> {
         return await this.redis.llen(this.MQ_NAME);
     }
     
@@ -109,40 +131,44 @@ export default class RedisMethod {
      * 设置 pull 的锁
      * @return {boolean} status 是否 lock 成功
      */
-    async setPullLock() {
-        const value = await this.redis.incr(this.LOCK_PULL_KEY);
-        if(value === 1) {
-            await this.expire(this.LOCK_PULL_KEY, this.lockExpireTime);
-            return true;
-        }
-        return false;
+    async setPullLock(): Promise<boolean> {
+        // const value = await this.redis.incr(this.LOCK_PULL_KEY);
+        // if(value === 1) {
+        //     await this.expire(this.LOCK_PULL_KEY, this.lockExpireTime);
+        //     return true;
+        // }
+        // return false;
+        return await this.pullLock.lock();
     }
     /**
      * 清理 pull 的锁
      */
-    async cleanPullLock() {
-        return await this.redis.del(this.LOCK_PULL_KEY);
+    async cleanPullLock(): Promise<void> {
+        // return await this.redis.del(this.LOCK_PULL_KEY);
+        return await this.pullLock.cleanLock();
     }
 
-    async setCheckLock() {
-        const value = await this.redis.incr(this.LOCK_CHECK_KEY);
+    async setCheckLock(): Promise<boolean> {
+        // const value = await this.redis.incr(this.LOCK_CHECK_KEY);
 
-        if (value < 5) {
-            await this.expire(this.LOCK_CHECK_KEY, this.lockExpireTime);
-        }
+        // if (value < 5) {
+        //     await this.expire(this.LOCK_CHECK_KEY, this.lockExpireTime);
+        // }
 
-        if (value > 100) {
-            await this.redis.del(this.LOCK_CHECK_KEY);
-        }
+        // if (value > 100) {
+        //     await this.redis.del(this.LOCK_CHECK_KEY);
+        // }
 
-        if(value === 1) {
-            return true;
-        }
-        return false;
+        // if(value === 1) {
+        //     return true;
+        // }
+        // return false;
+        return this.checkLock.lock();
     }
 
-    async cleanCheckLock() {
-        return await this.redis.del(this.LOCK_CHECK_KEY);
+    async cleanCheckLock(): Promise<void> {
+        // return await this.redis.del(this.LOCK_CHECK_KEY);
+        return await this.checkLock.cleanLock();
     }
     
     async lpopMessage() {
@@ -343,18 +369,20 @@ export default class RedisMethod {
         
     }
 
-    async orderConsumeLock() {
-        let status = false;
-        const num = await this.redis.incr(this.LOCK_ORDER_KEY);
-        if (num === 1) {
-            status = true;
-        }
-        await this.expire(this.LOCK_ORDER_KEY, this.lockExpireTime * 5); // 顺序消费，如果存在错误使请求中断，需要完全修复之后才允许重新获取，所以时间设置长一点
-        return status;
+    async orderConsumeLock(): Promise<boolean> {
+        // let status = false;
+        // const num = await this.redis.incr(this.LOCK_ORDER_KEY);
+        // if (num === 1) {
+        //     status = true;
+        // }
+        // await this.expire(this.LOCK_ORDER_KEY, this.lockExpireTime * 5); // 顺序消费，如果存在错误使请求中断，需要完全修复之后才允许重新获取，所以时间设置长一点
+        // return status;
+        return this.orderLock.lock();
     }
 
     async orderConsumeUnlock() {
-        await this.redis.del(this.LOCK_ORDER_KEY);
+        // await this.redis.del(this.LOCK_ORDER_KEY);
+        return this.orderLock.cleanLock();
     }
 
     async initSelectedIds(ids: string[]) {
