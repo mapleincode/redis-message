@@ -22,7 +22,7 @@
     "debug": "^4.1.0",
     "lodash": "^4.17.15",
     "pino": "^5.13.2",
-    "wm-redis-locks": "^0.0.1"
+    "wm-redis-locks": "^0.0.2"
   },
   "devDependencies": {
     "eslint": "^6.3.0",
