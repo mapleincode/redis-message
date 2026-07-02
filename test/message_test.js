@@ -93,6 +93,7 @@ describe('redis message', function () {
         await _redis.quit();
     });
 
+
     it('fetch message basic', async function () {
         fetchMessageLengthLimit = 5;
         const msgs = await redisMessage.fetchMessage();
@@ -237,7 +238,7 @@ describe('redis message', function () {
 
         const b = await redis.checkTimeExists(messageId);
         b.should.equal(1);
-        
+
         const detail = await redis.getDetail(messageId);
         should(detail).be.Object;
 

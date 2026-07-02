@@ -1,18 +1,18 @@
-import { messageData } from './redis-method';
+import { MessageData } from "./type";
 import { Redis } from 'ioredis';
 /** 回调函数接收的选项参数 */
-declare type subFuncOptions = {
+type subFuncOptions = {
     /** 主题标识 */
     topic: string;
     /** 消息类型标识 */
     messageType: string;
 };
 /** 从数据源拉取的原始消息结构 */
-declare type originalMessage = {
+type originalMessage = {
     /** 消息自增 ID */
     id: number;
     /** 消息实际数据 */
-    data: messageData;
+    data: MessageData;
     /** 消息类型标识 */
     msgType: string;
 };
@@ -21,26 +21,26 @@ interface subFunc<func> {
     (options: subFuncOptions): func;
 }
 /** 拉取消息的回调函数类型 */
-declare type fetchMessageFunc = {
+type fetchMessageFunc = {
     (): Promise<originalMessage[]>;
 };
 /** 拉取消息后的回调函数类型 */
-declare type afterFetchMessageFunc = {
+type afterFetchMessageFunc = {
     (data: {
         offset: number | undefined;
         noChange: boolean;
     }): Promise<void>;
 };
 /** 处理失败消息的回调函数类型 */
-declare type handleFailedMessageFunc = {
-    (messageId: string, data: messageData | string): Promise<void>;
+type handleFailedMessageFunc = {
+    (messageId: string, data: MessageData | string): Promise<void>;
 };
 /** 处理超时消息的回调函数类型 */
-declare type dealTimeoutMessageFunc = {
+type dealTimeoutMessageFunc = {
     (timeoutList: string[]): Promise<void>;
 };
 /** 日志函数类型 */
-declare type loggerFunc = {
+type loggerFunc = {
     warn: Function;
     error: Function;
     info: Function;
@@ -146,7 +146,7 @@ export default class RedisMessage {
      */
     getOneMessage(): Promise<{
         messageId: string;
-        data: messageData;
+        data: MessageData;
         msgType: string;
     } | null>;
     /**
@@ -157,11 +157,7 @@ export default class RedisMessage {
      * @param size 需要获取的消息数量
      * @returns 消息数据数组
      */
-    getMessages(size: number): Promise<Required<{
-        messageId?: string | undefined;
-        msgType: string;
-        data: messageData;
-    }>[] | undefined>;
+    getMessages(size: number): Promise<Required<import("./type").RedisMessageData>[] | undefined>;
     /**
      * 确认普通消息的消费结果
      * 支持单个/批量确认，支持成功/失败确认
@@ -242,7 +238,7 @@ export default class RedisMessage {
      */
     __messageUnconsumed(): Promise<{
         itemsLength: number;
-        items: any;
+        items: string[];
     }>;
     /**
      * 获取正在消费中的消息映射（管理接口）

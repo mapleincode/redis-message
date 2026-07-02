@@ -21,7 +21,7 @@ const redis_method_1 = __importDefault(require("./redis-method"));
 const utils_1 = require("./utils");
 const logger_1 = __importDefault(require("./logger"));
 const debug_1 = __importDefault(require("debug"));
-const debug = debug_1.default('redis-message');
+const debug = (0, debug_1.default)('redis-message');
 ;
 ;
 /**
@@ -39,7 +39,7 @@ class RedisMessage {
         // ============== 以下是推荐默认参数 ================
         keyHeader = 'msg_', // redis key header 默认 msg_
         lockExpireTime = 60, // redis lock 默认时间
-        maxAckTimeout = 60 * 1000, // 消费超时时间 默认 60s. 
+        maxAckTimeout = 60 * 1000, // 消费超时时间 默认 60s.
         eachMessageCount = 200, // 每次 Message 获取数量
         minRedisMessageCount = 200, // Redis 最少的 count 数量
         maxRetryTimes = 5, // 消息消费失败重新消费次数
@@ -96,22 +96,22 @@ class RedisMessage {
             eachMessageCount: eachMessageCount
         };
         this.options = {
-            topic,
-            messageType,
-            redis,
+            topic, // topic 用于作为标识，在 redis key 进行区分
+            messageType, // messageType 数据源
+            redis, // ioredis 实例
             logger,
             // ============== 以下是推荐默认参数 ================
-            keyHeader,
-            lockExpireTime,
-            maxAckTimeout: maxAckTimeout,
-            maxAckTimeoutSecords: parseInt((maxAckTimeout / 1000).toString()),
-            eachMessageCount: eachMessageCount,
-            minRedisMessageCount: minRedisMessageCount,
-            maxRetryTimes: maxRetryTimes,
-            recordFailedMessage,
+            keyHeader, // redis key header 默认 msg_
+            lockExpireTime, // redis lock 默认时间
+            maxAckTimeout: maxAckTimeout, // 消费超时时间 默认 60s.
+            maxAckTimeoutSecords: parseInt((maxAckTimeout / 1000).toString()), // 转换成单位秒(s)
+            eachMessageCount: eachMessageCount, // 每次 Message 获取数量
+            minRedisMessageCount: minRedisMessageCount, // Redis 最少的 count 数量
+            maxRetryTimes: maxRetryTimes, // 消息消费失败重新消费次数
+            recordFailedMessage, // 记录失败的数据 默认 true
             // ================= Mode 功能选项 ===================
-            orderConsumption,
-            autoAck,
+            orderConsumption, // 是否支持顺序消费 默认 false
+            autoAck, // 是否支持 auto-ack 模式 默认 false
             // 如果在待消费时间内未收到错误，则自动进入消费模式并且不计入数据库
             // 三个核心回调函数
             // 1. fetchMessage - 从数据源拉取新消息
@@ -311,7 +311,7 @@ class RedisMessage {
                     // 说明有个进程可能已经在获取了
                     // 这时候应该等待
                     // 如果 mqCount 不为 0 就不需要等待了
-                    yield utils_1.sleep(500);
+                    yield (0, utils_1.sleep)(500);
                 }
             }
             // 如果返回的是 object 说明是同步请求
@@ -364,8 +364,8 @@ class RedisMessage {
      * @param messageIds 消息 ID（字符串/数组/ackItem 数组）
      * @param allSuccess 默认的成功状态，默认 true
      */
-    ackNormalMessages(messageIds, allSuccess = true) {
-        return __awaiter(this, void 0, void 0, function* () {
+    ackNormalMessages(messageIds_1) {
+        return __awaiter(this, arguments, void 0, function* (messageIds, allSuccess = true) {
             if (typeof messageIds === 'string') {
                 messageIds = [messageIds];
             }
@@ -423,8 +423,8 @@ class RedisMessage {
      * @param {string|array} messageIds 消息 id 或消息 id 数组
      * @param {boolean} success boolean 是否是成功
      */
-    ackMessages(messageIds, allSuccess = true) {
-        return __awaiter(this, void 0, void 0, function* () {
+    ackMessages(messageIds_1) {
+        return __awaiter(this, arguments, void 0, function* (messageIds, allSuccess = true) {
             if (typeof messageIds === 'boolean') {
                 allSuccess = messageIds;
                 return yield this.ackOrderMessages(allSuccess);
@@ -452,7 +452,7 @@ class RedisMessage {
                 const time = yield this.redis.getTime(messageId);
                 if (time === null) {
                     // 数据延迟问题，time 已经被删除
-                    // 不需要做操作 
+                    // 不需要做操作
                     continue;
                 }
                 else if (time) {
@@ -522,7 +522,7 @@ class RedisMessage {
                 const time = yield this.redis.getTime(messageId);
                 if (time === null) {
                     // 数据延迟问题，time 已经被删除
-                    // 不需要做操作 
+                    // 不需要做操作
                     continue;
                 }
                 else if (time) {
@@ -559,8 +559,8 @@ class RedisMessage {
      * @param sleepStatus 是否在执行修复前等待 1s（默认 true，给消费操作留出时间）
      * @returns 修复结果或锁失败提示
      */
-    checkExpireMessage(sleepStatus = true) {
-        return __awaiter(this, void 0, void 0, function* () {
+    checkExpireMessage() {
+        return __awaiter(this, arguments, void 0, function* (sleepStatus = true) {
             // 关门打狗
             const status = yield this.redis.setCheckLock();
             if (!status)
@@ -575,21 +575,21 @@ class RedisMessage {
             const timeoutList = [];
             const keys = Object.keys(hashMap);
             for (const key of keys) {
-                yield utils_1.sleep(0);
+                yield (0, utils_1.sleep)(0);
                 const index = mqMessages.indexOf(key);
                 if (index < 0 && !hashMap[key]) {
                     // 数据缺失
                     // queue 不存在， 但是 hashMap 上却被初始化 null
                     missingList.push(key);
                 }
-                else if (index < 0 && hashMap[key] && Math.abs(utils_1.now() - hashMap[key]) > this.options.maxAckTimeoutSecords) {
+                else if (index < 0 && hashMap[key] && Math.abs((0, utils_1.now)() - hashMap[key]) > this.options.maxAckTimeoutSecords) {
                     // 数据 ack 超时
                     // queue 不存在，且超时
                     timeoutList.push(key);
                 }
             }
             if (sleepStatus) {
-                yield utils_1.sleep(1000);
+                yield (0, utils_1.sleep)(1000);
             }
             if (this.options.orderConsumption) {
                 return yield this.fixOrderMessage(missingList, timeoutList);

@@ -2,48 +2,25 @@
  * RedisMethod 类
  * 封装与 Redis 交互的底层方法，包括消息队列的增删改查、分布式锁、事务操作等
  */
-import { Redis } from 'ioredis';
-import RedisLock from 'wm-redis-locks';
-/** Redis 方法配置选项 */
-export declare type RedisMethodOptions = {
-    /** 主题标识，用于生成 Redis key 前缀 */
-    topic: string;
-    /** Redis key 的自定义前缀，默认 'msg_' */
-    keyHeader?: string;
-    /** 分布式锁的过期时间（秒），默认 60 */
-    lockExpireTime?: number;
-};
-/** 对象类型的数据，支持 toJSON 序列化 */
-export declare type objectData = {
-    toJSON?: Function;
-    [key: string]: any;
-};
-/** 消息数据类型，支持字符串或对象 */
-export declare type messageData = string | objectData;
-/** Redis 中存储的消息数据结构 */
-declare type redisMessageData = {
-    messageId?: string;
-    msgType: string;
-    data: messageData;
-};
-/** Redis multi 事务命令参数类型 */
-declare type MultiCommand = string[];
+import { Redis } from "ioredis";
+import RedisLock from "wm-redis-locks";
+import { MessageData, MultiCommand, RedisMessageData, RedisMethodOptions } from "./type";
 export default class RedisMethod {
-    private redis;
+    private readonly redis;
     private options;
-    private topic;
-    private keyHeader;
-    private lockExpireTime;
-    private MQ_NAME;
-    private MQ_HASH_NAME;
-    private MQ_HASH_RETRY_TIMES;
-    private LOCK_PULL_KEY;
-    private LOCK_CHECK_KEY;
-    private LOCK_ORDER_KEY;
-    private ORDER_CONSUME_SELECTED;
-    private pullLock;
-    private checkLock;
-    private orderLock;
+    private readonly topic;
+    private readonly keyHeader;
+    private readonly lockExpireTime;
+    private readonly MQ_NAME;
+    private readonly MQ_HASH_NAME;
+    private readonly MQ_HASH_RETRY_TIMES;
+    private readonly LOCK_PULL_KEY;
+    private readonly LOCK_CHECK_KEY;
+    private readonly LOCK_ORDER_KEY;
+    private readonly ORDER_CONSUME_SELECTED;
+    private readonly pullLock;
+    private readonly checkLock;
+    private readonly orderLock;
     constructor(redis: Redis, options: RedisMethodOptions);
     getPullLock(): RedisLock;
     getCheckLock(): RedisLock;
@@ -57,20 +34,20 @@ export default class RedisMethod {
      * @param msgType 消息类型标识
      * @returns JSON 字符串
      */
-    packMessage(data: messageData, msgType: string): string;
+    packMessage(data: MessageData, msgType: string): string;
     /**
      * 反序列化 JSON 字符串为消息数据对象
      * 如果解析失败，返回 { msgType: 'unknown', data: jsonStr } 作为兜底
-     * @param jsonStr JSON 字符串
      * @returns 解析后的消息数据对象，输入为 null/undefined 时返回 null
+     * @param json
      */
-    unpackMessage(jsonStr: string | null | undefined): redisMessageData | null;
+    unpackMessage(json: unknown): RedisMessageData | null;
     /**
      * 设置 redis key 过期时间戳
      * @param {string} key key
      * @param {integer} timestamp 时间戳
      */
-    expire(key: string, timestamp: number): Promise<0 | 1>;
+    expire(key: string, timestamp: number): Promise<number>;
     /**
      * 返回消息队列的总数
      * @return {integer} count
@@ -91,37 +68,37 @@ export default class RedisMethod {
      * 从队列左侧弹出一个 messageId
      * @returns messageId 或 null（队列为空时）
      */
-    lpopMessage(): Promise<string>;
+    lpopMessage(): Promise<string | null>;
     /**
      * 从队列左侧推入一个 messageId（用于顺序消费重试）
      * @param messageId 消息 ID
      */
-    lpushMessage(messageId: string): Promise<any>;
+    lpushMessage(messageId: string): Promise<number>;
     /**
      * 从队列右侧弹出一个 messageId
      * @returns messageId 或 null（队列为空时）
      */
-    rpopMessage(): Promise<string>;
+    rpopMessage(): Promise<string | null>;
     /**
      * 从队列右侧推入一个 messageId（普通消息入队）
      * @param messageId 消息 ID
      */
-    rpushMessage(messageId: string): Promise<any>;
+    rpushMessage(messageId: string): Promise<number>;
     /**
      * 获取队列中指定范围的 messageId 列表
      * @param offset 起始偏移量，默认 0
      * @param size 结束偏移量，默认 10
      * @returns messageId 数组
      */
-    getMessageList(offset?: number, size?: number): Promise<any>;
-    setTime(messageId: string): Promise<0 | 1>;
+    getMessageList(offset?: number, size?: number): Promise<string[]>;
+    setTime(messageId: string): Promise<number>;
     getTimeMap(): Promise<{
         [key: string]: any;
     }>;
-    checkTimeExists(messageId: string): Promise<0 | 1>;
+    checkTimeExists(messageId: string): Promise<number>;
     getTime(messageId: string): Promise<string | null>;
-    cleanTime(messageId: string): Promise<any>;
-    initTime(messageId: string): Promise<0 | 1>;
+    cleanTime(messageId: string): Promise<number>;
+    initTime(messageId: string): Promise<number>;
     /**
      * 根据消息 ID 生成唯一标识
      * @param id 消息自增 ID
@@ -133,14 +110,14 @@ export default class RedisMethod {
      * @param messageId 消息 ID
      * @returns 解析后的消息数据
      */
-    getDetail(messageId: string): Promise<redisMessageData | null>;
+    getDetail(messageId: string): Promise<RedisMessageData | null>;
     /**
      * 设置消息详情（序列化为 JSON 存储）
      * @param messageId 消息 ID
      * @param data 消息数据
      * @param msgType 消息类型
      */
-    setDetail(messageId: string, data: messageData, msgType: string): Promise<string>;
+    setDetail(messageId: string, data: MessageData, msgType: string): Promise<"OK">;
     /**
      * 删除消息详情
      * @param messageId 消息 ID
@@ -156,20 +133,20 @@ export default class RedisMethod {
      * 删除消息的失败次数记录
      * @param messageId 消息 ID
      */
-    delFailedTimes(messageId: string): Promise<any>;
+    delFailedTimes(messageId: string): Promise<number>;
     /**
      * 执行 Redis 事务（multi/exec）
      * @param options 命令数组，每个命令为 [command, ...args] 格式
      * @returns 事务执行结果
      */
-    multi(options: MultiCommand[]): Promise<any>;
+    multi(options: MultiCommand[]): Promise<[error: Error | null, result: unknown][] | null>;
     /**
      * 清理失败消息的所有相关数据（原子操作）
      * 包括：获取详情、删除失败次数、清理时间记录、删除消息详情
      * @param messageId 消息 ID
      * @returns 消息详情数据
      */
-    cleanFailedMsg(messageId: string): Promise<redisMessageData | null>;
+    cleanFailedMsg(messageId: string): Promise<(RedisMessageData | null)[] | null>;
     /**
      * 批量清理多个消息的所有相关数据（原子操作）
      * @param messageIds 消息 ID 数组
@@ -187,14 +164,14 @@ export default class RedisMethod {
      * @param data 消息数据
      * @param msgType 消息类型
      */
-    pushMessage(id: number, data: messageData, msgType: string): Promise<void>;
+    pushMessage(id: number, data: MessageData, msgType: string): Promise<void>;
     /**
      * 弹出消息并设置消费时间戳（原子操作）
      * 用于单条消息获取时，同时记录消费开始时间
      * @param messageId 消息 ID
      * @returns 解析后的消息数据
      */
-    fetchMessageAndSetTime(messageId: string): Promise<redisMessageData | null>;
+    fetchMessageAndSetTime(messageId: string): Promise<RedisMessageData | null>;
     /**
      * 批量获取消息（原子操作）
      * 分两步执行：
@@ -203,7 +180,7 @@ export default class RedisMethod {
      * @param size 需要获取的消息数量
      * @returns 消息数据数组
      */
-    fetchMultiMessage(size: number): Promise<Required<redisMessageData>[]>;
+    fetchMultiMessage(size: number): Promise<Required<RedisMessageData>[]>;
     /**
      * 重新初始化消息的消费时间并推入队列
      * 用于消费失败后重试的场景
@@ -235,4 +212,3 @@ export default class RedisMethod {
      */
     cleanOrderConsumer(): Promise<void>;
 }
-export {};

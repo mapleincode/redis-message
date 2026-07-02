@@ -5,7 +5,8 @@
  */
 'use strict';
 
-import RedisMethod, { messageData } from './redis-method';
+import RedisMethod from './redis-method';
+import { MessageData } from "./type";
 import { now, sleep } from './utils';
 import defaultLogger from './logger';
 import Debug from 'debug';
@@ -26,7 +27,7 @@ type originalMessage = {
     /** 消息自增 ID */
     id: number;
     /** 消息实际数据 */
-    data: messageData;
+    data: MessageData;
     /** 消息类型标识 */
     msgType: string;
 };
@@ -48,7 +49,7 @@ type afterFetchMessageFunc = {
 
 /** 处理失败消息的回调函数类型 */
 type handleFailedMessageFunc = {
-    (messageId: string, data: messageData|string): Promise<void>;
+    (messageId: string, data: MessageData|string): Promise<void>;
 }
 
 /** 处理超时消息的回调函数类型 */
@@ -155,7 +156,7 @@ export default class RedisMessage {
             // ============== 以下是推荐默认参数 ================
             keyHeader = 'msg_', // redis key header 默认 msg_
             lockExpireTime = 60, // redis lock 默认时间
-            maxAckTimeout = 60 * 1000, // 消费超时时间 默认 60s. 
+            maxAckTimeout = 60 * 1000, // 消费超时时间 默认 60s.
             eachMessageCount = 200, // 每次 Message 获取数量
             minRedisMessageCount = 200, // Redis 最少的 count 数量
             maxRetryTimes = 5, // 消息消费失败重新消费次数
@@ -186,7 +187,7 @@ export default class RedisMessage {
                 return func;
             },
             dealFailedMessage = function (/* { topic, messageType } */) {
-                return async function (messageId: string, detail: string|messageData) {
+                return async function (messageId: string, detail: string|MessageData) {
                     debug(`messageId: ${messageId} has been error acks`);
                     logger.warn(`message failed!! id: ${messageId} data: ${JSON.stringify(detail)}`);
                     return;
@@ -224,7 +225,7 @@ export default class RedisMessage {
             // ============== 以下是推荐默认参数 ================
             keyHeader, // redis key header 默认 msg_
             lockExpireTime, // redis lock 默认时间
-            maxAckTimeout: maxAckTimeout, // 消费超时时间 默认 60s. 
+            maxAckTimeout: maxAckTimeout, // 消费超时时间 默认 60s.
             maxAckTimeoutSecords: parseInt((maxAckTimeout/1000).toString()), // 转换成单位秒(s)
             eachMessageCount: eachMessageCount, // 每次 Message 获取数量
             minRedisMessageCount: minRedisMessageCount, // Redis 最少的 count 数量
@@ -249,7 +250,7 @@ export default class RedisMessage {
         // 顺序消费模式
         if (this.options.orderConsumption) {
             this.options.recordFailedMessage = true; // 必须记录消息
-            
+
             if (this.options.maxRetryTimes < 2) {
                 this.options.maxRetryTimes = 2; // 至少保证一次重试
             }
@@ -489,7 +490,7 @@ export default class RedisMessage {
                     this.logger.error(err);
                     await this.setOrderConsumeIds(list);
                 }
-                
+
             }
         } catch(err) {
             if (this.options.orderConsumption) {
@@ -514,7 +515,7 @@ export default class RedisMessage {
     private async ackNormalMessages(messageIds: string[] | ackItem[] | string, allSuccess: boolean = true) {
         if (typeof messageIds === 'string') {
             messageIds = [ messageIds ];
-        } 
+        }
 
         debug(`获得消息的数量为: ${messageIds && messageIds.length}`);
 
@@ -607,7 +608,7 @@ export default class RedisMessage {
 
             if (time === null) {
                 // 数据延迟问题，time 已经被删除
-                // 不需要做操作 
+                // 不需要做操作
                 continue;
             } else if (time) {
                 // time 存在并且不为空
@@ -636,7 +637,7 @@ export default class RedisMessage {
             if (realTimeoutList.length) {
                 await this.dealTimeoutMessage(realTimeoutList);
             }
-            
+
         } catch(err) {
             console.error(err);
         }
@@ -687,7 +688,7 @@ export default class RedisMessage {
 
             if (time === null) {
                 // 数据延迟问题，time 已经被删除
-                // 不需要做操作 
+                // 不需要做操作
                 continue;
             } else if (time) {
                 // time 存在并且不为空
@@ -753,7 +754,7 @@ export default class RedisMessage {
 
                 // queue 不存在， 但是 hashMap 上却被初始化 null
                 missingList.push(key);
-            } else if (index < 0 && hashMap[key] && Math.abs(now() - hashMap[key]) > this.options.maxAckTimeoutSecords) {                
+            } else if (index < 0 && hashMap[key] && Math.abs(now() - hashMap[key]) > this.options.maxAckTimeoutSecords) {
                 // 数据 ack 超时
                 // queue 不存在，且超时
                 timeoutList.push(key);
@@ -824,7 +825,7 @@ export default class RedisMessage {
 
             for(const messageId of ids.reverse()) {
                 const time = await this.redis.getTime(messageId);
-    
+
                 if(time === '') {
                     // 已经被重新初始化
                     continue;
@@ -832,7 +833,7 @@ export default class RedisMessage {
                     // 已被删除
                     continue;
                 }
-    
+
                 try {
                     // 作为失败的 messageId 重新加入队列
                     await this._handleFailedMessage(messageId);
@@ -863,7 +864,7 @@ export default class RedisMessage {
      */
     async __messageUnconsumed() {
         const length = await this.redis.messageCount();
-        let items = [];
+        let items: string[] = [];
         if (length > 0) {
             items = await this.redis.getMessageList(0, length);
         }

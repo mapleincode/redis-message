@@ -12,7 +12,8 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sleep = exports.now = void 0;
+exports.now = now;
+exports.sleep = sleep;
 /**
  * 获取当前时间的 Unix 时间戳（秒级）
  * @returns 当前时间的秒级时间戳
@@ -20,7 +21,6 @@ exports.sleep = exports.now = void 0;
 function now() {
     return Math.floor(Date.now() / 1000);
 }
-exports.now = now;
 /**
  * 异步等待指定时间
  * @param ms 等待的毫秒数
@@ -32,4 +32,3 @@ function sleep(ms) {
         });
     });
 }
-exports.sleep = sleep;

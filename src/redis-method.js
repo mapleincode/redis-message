@@ -16,8 +16,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-const utils_1 = require("./utils");
 const wm_redis_locks_1 = __importDefault(require("wm-redis-locks"));
+const utils_1 = require("./utils");
 class RedisMethod {
     constructor(redis, options) {
         this.redis = redis;
@@ -72,21 +72,22 @@ class RedisMethod {
     /**
      * 反序列化 JSON 字符串为消息数据对象
      * 如果解析失败，返回 { msgType: 'unknown', data: jsonStr } 作为兜底
-     * @param jsonStr JSON 字符串
      * @returns 解析后的消息数据对象，输入为 null/undefined 时返回 null
+     * @param json
      */
-    unpackMessage(jsonStr) {
-        if (jsonStr == null) {
+    unpackMessage(json) {
+        if (json == null) {
             return null;
         }
         let data;
         try {
+            const jsonStr = json.toString();
             data = JSON.parse(jsonStr);
         }
         catch (ex) {
             data = {
                 msgType: 'unknown',
-                data: jsonStr
+                data: json
             };
         }
         return data;
@@ -198,14 +199,14 @@ class RedisMethod {
      * @param size 结束偏移量，默认 10
      * @returns messageId 数组
      */
-    getMessageList(offset = 0, size = 10) {
-        return __awaiter(this, void 0, void 0, function* () {
+    getMessageList() {
+        return __awaiter(this, arguments, void 0, function* (offset = 0, size = 10) {
             return yield this.redis.lrange(this.MQ_NAME, offset, size);
         });
     }
     setTime(messageId) {
         return __awaiter(this, void 0, void 0, function* () {
-            return yield this.redis.hset(this.MQ_HASH_NAME, messageId, utils_1.now());
+            return yield this.redis.hset(this.MQ_HASH_NAME, messageId, (0, utils_1.now)());
         });
     }
     getTimeMap() {
@@ -313,20 +314,21 @@ class RedisMethod {
      */
     cleanFailedMsg(messageId) {
         return __awaiter(this, void 0, void 0, function* () {
-            const results = yield this.redis.multi([
-                ['get', `${this.keyHeader}-${messageId}`],
-                ['hdel', this.MQ_HASH_RETRY_TIMES, messageId],
-                ['hdel', this.MQ_HASH_NAME, messageId],
-                ['del', `${this.keyHeader}-${messageId}`],
-            ]).exec();
-            if (Array.isArray(results)) {
-                // FIX: results[0] 是 [error, value] 格式，需要取 results[0][1] 获取实际值
-                const detail = this.unpackMessage(results[0][1]);
-                return detail;
+            const results = yield this.redis.multi()
+                .get(`${this.keyHeader}-${messageId}`) // 获取消息详情
+                .hdel(this.MQ_HASH_RETRY_TIMES, messageId) // 删除失败次数
+                .hdel(this.MQ_HASH_NAME, messageId) // 删除消息详情
+                .del(`${this.keyHeader}-${messageId}`) // 删除消息详情
+                .exec();
+            if (results == null) {
+                return null;
             }
-            else {
-                throw new Error(JSON.stringify(results || ''));
+            for (const result of results) {
+                if (result[0] != null) {
+                    throw result[0];
+                }
             }
+            return results.map(result => this.unpackMessage(result[1]));
         });
     }
     /**
@@ -351,9 +353,9 @@ class RedisMethod {
     cleanMsg(messageId) {
         return __awaiter(this, void 0, void 0, function* () {
             yield this.redis.multi([
-                ['hdel', this.MQ_HASH_RETRY_TIMES, messageId],
-                ['hdel', this.MQ_HASH_NAME, messageId],
-                ['del', `${this.keyHeader}-${messageId}`],
+                ['hdel', this.MQ_HASH_RETRY_TIMES, messageId], // 删除失败次数
+                ['hdel', this.MQ_HASH_NAME, messageId], // 清理时间记录
+                ['del', `${this.keyHeader}-${messageId}`], // 删除消息详情
             ]).exec();
         });
     }
@@ -384,12 +386,24 @@ class RedisMethod {
      */
     fetchMessageAndSetTime(messageId) {
         return __awaiter(this, void 0, void 0, function* () {
-            const cmds = [
-                ['hset', this.MQ_HASH_NAME, messageId, utils_1.now().toString()],
-                ['get', `${this.keyHeader}-${messageId}`]
-            ];
-            const result = yield this.redis.multi(cmds).exec();
-            const detail = result[1][1];
+            // const cmds = [
+            //     [ 'hset', this.MQ_HASH_NAME, messageId, now().toString() ],
+            //     [ 'get', `${this.keyHeader}-${messageId}` ]
+            // ];
+            const results = yield this.redis
+                .multi()
+                .hset(this.MQ_HASH_NAME, messageId, (0, utils_1.now)().toString())
+                .get(`${this.keyHeader}-${messageId}`)
+                .exec();
+            if (results == null) {
+                throw new Error('Message not found');
+            }
+            for (const result of results) {
+                if (result[0] != null) {
+                    throw result[0];
+                }
+            }
+            const detail = results[1][1];
             return this.unpackMessage(detail);
         });
     }
@@ -403,38 +417,43 @@ class RedisMethod {
      */
     fetchMultiMessage(size) {
         return __awaiter(this, void 0, void 0, function* () {
-            let cmds = [];
+            if (size <= 0) {
+                return [];
+            }
+            const commander = this.redis.multi();
             while (size--) {
-                cmds.push([
-                    'lpop', this.MQ_NAME
-                ]);
+                commander.lpop(this.MQ_NAME);
             }
             // 因为必须先获取 messageId 之后再获取消息体，如果数据丢失，就需要等数据修复才能恢复数据了。
-            const results = yield this.redis.multi(cmds).exec();
+            const results = yield commander.exec();
+            if (results == null) {
+                throw new Error('Message not found');
+            }
             // 过滤掉 null 结果（队列中可能已被其他进程消费的消息）
             const realResults = results.map(r => r[1]).filter(r => !!r);
-            if (!realResults.length)
+            if (!realResults.length) {
                 return [];
-            cmds = [];
-            const timeNow = utils_1.now().toString();
+            }
+            const timeNow = (0, utils_1.now)().toString();
+            const newCommander = this.redis.multi();
             // 组装设置 time 和获取 detail 的 cmds
             for (const messageId of realResults) {
                 if (typeof messageId !== 'string') {
                     continue;
                 }
-                cmds.push([
-                    'hset', this.MQ_HASH_NAME, messageId, timeNow
-                ]);
-                cmds.push([
-                    'get', `${this.keyHeader}-${messageId}`
-                ]);
+                newCommander
+                    .hset(this.MQ_HASH_NAME, messageId, timeNow)
+                    .get(`${this.keyHeader}-${messageId}`);
             }
             // 事务请求
-            const dataResults = yield this.redis.multi(cmds).exec();
+            const dataResults = yield newCommander.exec();
             const list = [];
+            if (dataResults == null) {
+                throw new Error('Message not found');
+            }
             for (let i = 1; i < dataResults.length; i += 2) {
                 const data = this.unpackMessage(dataResults[i][1]);
-                const messageId = realResults[(i - 1) / 2];
+                const messageId = dataResults[(i - 1) / 2][1];
                 if (data && messageId) { // 目前存在 BUG 导致可能 message data 为空
                     data.messageId = messageId;
                     list.push(data);
@@ -449,8 +468,8 @@ class RedisMethod {
      * @param messageId 消息 ID
      * @param pushLeft 是否从左侧推入（顺序消费为 true，普通消费为 false）
      */
-    initTimeAndRpush(messageId, pushLeft = false) {
-        return __awaiter(this, void 0, void 0, function* () {
+    initTimeAndRpush(messageId_1) {
+        return __awaiter(this, arguments, void 0, function* (messageId, pushLeft = false) {
             yield this.redis.hset(this.MQ_HASH_NAME, messageId, '');
             if (pushLeft) {
                 yield this.redis.lpush(this.MQ_NAME, messageId);
