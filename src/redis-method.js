@@ -1,4 +1,8 @@
 "use strict";
+/**
+ * RedisMethod 类
+ * 封装与 Redis 交互的底层方法，包括消息队列的增删改查、分布式锁、事务操作等
+ */
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -42,12 +46,22 @@ class RedisMethod {
     getOrderLock() {
         return this.orderLock;
     }
+    /**
+     * 序列化消息数据为 JSON 字符串
+     * 1. 如果 data 是 JSON 字符串，尝试解析为对象
+     * 2. 如果 data 有 toJSON 方法，调用 toJSON 转换
+     * 3. 最终序列化为 { data, msgType } 格式的 JSON
+     * @param data 消息数据
+     * @param msgType 消息类型标识
+     * @returns JSON 字符串
+     */
     packMessage(data, msgType) {
         if (typeof data === 'string') {
             try {
                 data = JSON.parse(data);
             }
             catch (err) {
+                // 非 JSON 字符串，保持原样
             }
         }
         if (typeof data !== 'string' && data.toJSON) {
@@ -55,7 +69,16 @@ class RedisMethod {
         }
         return JSON.stringify({ data, msgType });
     }
+    /**
+     * 反序列化 JSON 字符串为消息数据对象
+     * 如果解析失败，返回 { msgType: 'unknown', data: jsonStr } 作为兜底
+     * @param jsonStr JSON 字符串
+     * @returns 解析后的消息数据对象，输入为 null/undefined 时返回 null
+     */
     unpackMessage(jsonStr) {
+        if (jsonStr == null) {
+            return null;
+        }
         let data;
         try {
             data = JSON.parse(jsonStr);
@@ -133,26 +156,48 @@ class RedisMethod {
             return yield this.checkLock.cleanLock();
         });
     }
+    /**
+     * 从队列左侧弹出一个 messageId
+     * @returns messageId 或 null（队列为空时）
+     */
     lpopMessage() {
         return __awaiter(this, void 0, void 0, function* () {
             return yield this.redis.lpop(this.MQ_NAME);
         });
     }
+    /**
+     * 从队列左侧推入一个 messageId（用于顺序消费重试）
+     * @param messageId 消息 ID
+     */
     lpushMessage(messageId) {
         return __awaiter(this, void 0, void 0, function* () {
             return yield this.redis.lpush(this.MQ_NAME, messageId);
         });
     }
+    /**
+     * 从队列右侧弹出一个 messageId
+     * @returns messageId 或 null（队列为空时）
+     */
     rpopMessage() {
         return __awaiter(this, void 0, void 0, function* () {
             return yield this.redis.rpop(this.MQ_NAME);
         });
     }
+    /**
+     * 从队列右侧推入一个 messageId（普通消息入队）
+     * @param messageId 消息 ID
+     */
     rpushMessage(messageId) {
         return __awaiter(this, void 0, void 0, function* () {
             return yield this.redis.rpush(this.MQ_NAME, messageId);
         });
     }
+    /**
+     * 获取队列中指定范围的 messageId 列表
+     * @param offset 起始偏移量，默认 0
+     * @param size 结束偏移量，默认 10
+     * @returns messageId 数组
+     */
     getMessageList(offset = 0, size = 10) {
         return __awaiter(this, void 0, void 0, function* () {
             return yield this.redis.lrange(this.MQ_NAME, offset, size);
@@ -188,9 +233,19 @@ class RedisMethod {
             return yield this.redis.hset(this.MQ_HASH_NAME, messageId, '');
         });
     }
+    /**
+     * 根据消息 ID 生成唯一标识
+     * @param id 消息自增 ID
+     * @returns 格式为 '{topic}-{id}' 的消息 ID
+     */
     getMessageId(id) {
         return `${this.topic}-${id}`;
     }
+    /**
+     * 获取消息详情
+     * @param messageId 消息 ID
+     * @returns 解析后的消息数据
+     */
     getDetail(messageId) {
         return __awaiter(this, void 0, void 0, function* () {
             const key = `${this.keyHeader}-${messageId}`;
@@ -198,6 +253,12 @@ class RedisMethod {
             return this.unpackMessage(data);
         });
     }
+    /**
+     * 设置消息详情（序列化为 JSON 存储）
+     * @param messageId 消息 ID
+     * @param data 消息数据
+     * @param msgType 消息类型
+     */
     setDetail(messageId, data, msgType) {
         return __awaiter(this, void 0, void 0, function* () {
             const str = this.packMessage(data, msgType);
@@ -205,27 +266,51 @@ class RedisMethod {
             return yield this.redis.set(key, str);
         });
     }
+    /**
+     * 删除消息详情
+     * @param messageId 消息 ID
+     */
     delDetail(messageId) {
         return __awaiter(this, void 0, void 0, function* () {
             const key = `${this.keyHeader}-${messageId}`;
             return yield this.redis.del(key);
         });
     }
+    /**
+     * 递增消息的失败次数
+     * @param messageId 消息 ID
+     * @returns 递增后的失败次数
+     */
     incrFailedTimes(messageId) {
         return __awaiter(this, void 0, void 0, function* () {
             return yield this.redis.hincrby(this.MQ_HASH_RETRY_TIMES, messageId, 1);
         });
     }
+    /**
+     * 删除消息的失败次数记录
+     * @param messageId 消息 ID
+     */
     delFailedTimes(messageId) {
         return __awaiter(this, void 0, void 0, function* () {
             return yield this.redis.hdel(this.MQ_HASH_RETRY_TIMES, messageId);
         });
     }
+    /**
+     * 执行 Redis 事务（multi/exec）
+     * @param options 命令数组，每个命令为 [command, ...args] 格式
+     * @returns 事务执行结果
+     */
     multi(options) {
         return __awaiter(this, void 0, void 0, function* () {
             return yield this.redis.multi(options).exec();
         });
     }
+    /**
+     * 清理失败消息的所有相关数据（原子操作）
+     * 包括：获取详情、删除失败次数、清理时间记录、删除消息详情
+     * @param messageId 消息 ID
+     * @returns 消息详情数据
+     */
     cleanFailedMsg(messageId) {
         return __awaiter(this, void 0, void 0, function* () {
             const results = yield this.redis.multi([
@@ -235,7 +320,8 @@ class RedisMethod {
                 ['del', `${this.keyHeader}-${messageId}`],
             ]).exec();
             if (Array.isArray(results)) {
-                const detail = this.unpackMessage(results[0]);
+                // FIX: results[0] 是 [error, value] 格式，需要取 results[0][1] 获取实际值
+                const detail = this.unpackMessage(results[0][1]);
                 return detail;
             }
             else {
@@ -243,17 +329,25 @@ class RedisMethod {
             }
         });
     }
-    cleanMuliMsg(messageIds) {
+    /**
+     * 批量清理多个消息的所有相关数据（原子操作）
+     * @param messageIds 消息 ID 数组
+     */
+    cleanMultiMsg(messageIds) {
         return __awaiter(this, void 0, void 0, function* () {
             const cmds = [];
             for (const messageId of messageIds) {
-                cmds.push(['hdel', this.MQ_HASH_RETRY_TIMES, messageId]); // 删除失败次数 // await this.redis.delFailedTimes(messageId);
-                cmds.push(['hdel', this.MQ_HASH_NAME, messageId]); // 清理时间 key // await this.redis.cleanTime(messageId);
-                cmds.push(['del', `${this.keyHeader}-${messageId}`]); // 删除 message 详情 // await this.redis.delDetail(messageId);)
+                cmds.push(['hdel', this.MQ_HASH_RETRY_TIMES, messageId]); // 删除失败次数
+                cmds.push(['hdel', this.MQ_HASH_NAME, messageId]); // 清理时间记录
+                cmds.push(['del', `${this.keyHeader}-${messageId}`]); // 删除消息详情
             }
             yield this.redis.multi(cmds).exec();
         });
     }
+    /**
+     * 清理单个消息的所有相关数据（原子操作）
+     * @param messageId 消息 ID
+     */
     cleanMsg(messageId) {
         return __awaiter(this, void 0, void 0, function* () {
             yield this.redis.multi([
@@ -263,6 +357,13 @@ class RedisMethod {
             ]).exec();
         });
     }
+    /**
+     * 将消息推入队列并存储详情（原子操作）
+     * 同时执行：存储消息详情、初始化时间记录、推入队列
+     * @param id 消息自增 ID
+     * @param data 消息数据
+     * @param msgType 消息类型
+     */
     pushMessage(id, data, msgType) {
         return __awaiter(this, void 0, void 0, function* () {
             const messageId = this.getMessageId(id);
@@ -275,6 +376,12 @@ class RedisMethod {
             ]).exec();
         });
     }
+    /**
+     * 弹出消息并设置消费时间戳（原子操作）
+     * 用于单条消息获取时，同时记录消费开始时间
+     * @param messageId 消息 ID
+     * @returns 解析后的消息数据
+     */
     fetchMessageAndSetTime(messageId) {
         return __awaiter(this, void 0, void 0, function* () {
             const cmds = [
@@ -287,8 +394,12 @@ class RedisMethod {
         });
     }
     /**
-     * 获取多个数据
-     * @param size number 需要获取的消息数量
+     * 批量获取消息（原子操作）
+     * 分两步执行：
+     * 1. 从队列左侧依次弹出 size 条 messageId
+     * 2. 批量设置消费时间戳并获取消息详情
+     * @param size 需要获取的消息数量
+     * @returns 消息数据数组
      */
     fetchMultiMessage(size) {
         return __awaiter(this, void 0, void 0, function* () {
@@ -300,6 +411,7 @@ class RedisMethod {
             }
             // 因为必须先获取 messageId 之后再获取消息体，如果数据丢失，就需要等数据修复才能恢复数据了。
             const results = yield this.redis.multi(cmds).exec();
+            // 过滤掉 null 结果（队列中可能已被其他进程消费的消息）
             const realResults = results.map(r => r[1]).filter(r => !!r);
             if (!realResults.length)
                 return [];
@@ -331,6 +443,12 @@ class RedisMethod {
             return list;
         });
     }
+    /**
+     * 重新初始化消息的消费时间并推入队列
+     * 用于消费失败后重试的场景
+     * @param messageId 消息 ID
+     * @param pushLeft 是否从左侧推入（顺序消费为 true，普通消费为 false）
+     */
     initTimeAndRpush(messageId, pushLeft = false) {
         return __awaiter(this, void 0, void 0, function* () {
             yield this.redis.hset(this.MQ_HASH_NAME, messageId, '');
@@ -342,24 +460,27 @@ class RedisMethod {
             }
         });
     }
+    /**
+     * 获取顺序消费的分布式锁
+     * @returns 是否获取锁成功
+     */
     orderConsumeLock() {
         return __awaiter(this, void 0, void 0, function* () {
-            // let status = false;
-            // const num = await this.redis.incr(this.LOCK_ORDER_KEY);
-            // if (num === 1) {
-            //     status = true;
-            // }
-            // await this.expire(this.LOCK_ORDER_KEY, this.lockExpireTime * 5); // 顺序消费，如果存在错误使请求中断，需要完全修复之后才允许重新获取，所以时间设置长一点
-            // return status;
             return this.orderLock.lock();
         });
     }
+    /**
+     * 释放顺序消费的分布式锁
+     */
     orderConsumeUnlock() {
         return __awaiter(this, void 0, void 0, function* () {
-            // await this.redis.del(this.LOCK_ORDER_KEY);
             return this.orderLock.cleanLock();
         });
     }
+    /**
+     * 保存顺序消费中选中的消息 ID 列表
+     * @param ids 消息 ID 数组，以 '|' 分隔存储
+     */
     initSelectedIds(ids) {
         return __awaiter(this, void 0, void 0, function* () {
             if (!ids.length) {
@@ -370,6 +491,10 @@ class RedisMethod {
             return;
         });
     }
+    /**
+     * 获取顺序消费中选中的消息 ID 列表
+     * @returns 消息 ID 数组
+     */
     getSelectedIds() {
         return __awaiter(this, void 0, void 0, function* () {
             const idString = (yield this.redis.get(this.ORDER_CONSUME_SELECTED)) || '';
@@ -377,6 +502,9 @@ class RedisMethod {
             return selectIds;
         });
     }
+    /**
+     * 清理顺序消费相关的所有数据（选中 ID 和锁）
+     */
     cleanOrderConsumer() {
         return __awaiter(this, void 0, void 0, function* () {
             const cmds = [

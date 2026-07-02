@@ -1,6 +1,7 @@
 /**
  * RedisMessage 类
- * create by maple 2018-11-16 11:06:59
+ * 基于 Redis 实现的消息队列，支持普通消费、顺序消费、自动 ACK 等模式
+ * 提供消息拉取、消费确认(ACK)、失败重试、超时检测与修复等功能
  */
 'use strict';
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
@@ -23,10 +24,18 @@ const debug_1 = __importDefault(require("debug"));
 const debug = debug_1.default('redis-message');
 ;
 ;
+/**
+ * RedisMessage 消息队列类
+ * 提供基于 Redis 的消息队列功能，支持普通消费、顺序消费、自动 ACK 等模式
+ */
 class RedisMessage {
+    /**
+     * 创建 RedisMessage 实例
+     * @param options 配置选项
+     */
     constructor(options) {
         const { topic, // topic 用于作为标识，在 redis key 进行区分
-        messageType, // messageType
+        messageType, // messageType 数据源类型
         // ============== 以下是推荐默认参数 ================
         keyHeader = 'msg_', // redis key header 默认 msg_
         lockExpireTime = 60, // redis lock 默认时间
@@ -38,11 +47,11 @@ class RedisMessage {
         // ================= Mode 功能选项 ===================
         orderConsumption = false, // 是否支持顺序消费
         autoAck = false, // 是否支持 auto-ack 模式
-        // 如果在待消费时间内为收到错误，则自动进入消费模式并且不计入数据库
-        // 三个 Main 函数
-        // 1. fetch
-        // 2. after fetch
-        // 3. failed msg deal
+        // 如果在待消费时间内未收到错误，则自动进入消费模式并且不计入数据库
+        // 三个核心回调函数
+        // 1. fetchMessage - 从数据源拉取新消息
+        // 2. afterFetchMessage - 拉取消息后的回调
+        // 3. dealFailedMessage - 处理消费失败的消息
         fetchMessage = function ( /* { topic, messageType } */) {
             return function () {
                 return __awaiter(this, void 0, void 0, function* () {
@@ -103,11 +112,11 @@ class RedisMessage {
             // ================= Mode 功能选项 ===================
             orderConsumption,
             autoAck,
-            // 如果在待消费时间内为收到错误，则自动进入消费模式并且不计入数据库
-            // 三个 Main 函数
-            // 1. fetch
-            // 2. after fetch
-            // 3. failed msg deal
+            // 如果在待消费时间内未收到错误，则自动进入消费模式并且不计入数据库
+            // 三个核心回调函数
+            // 1. fetchMessage - 从数据源拉取新消息
+            // 2. afterFetchMessage - 拉取消息后的回调
+            // 3. failed msg deal - 处理消费失败的消息
             fetchMessage: fetchMessage(subFuncOptions),
             afterFetchMessage: afterFetchMessage(subFuncOptions),
             handleFailedMessage: handleFailedMessage ? handleFailedMessage(subFuncOptions) : dealFailedMessage(subFuncOptions),
@@ -168,6 +177,14 @@ class RedisMessage {
             debug('重新初始化消费成功');
         });
     }
+    /**
+     * 内部方法：执行消息拉取并推入 Redis 队列
+     * 1. 调用 fetchMessage 从数据源拉取新消息
+     * 2. 逐条推入 Redis 队列
+     * 3. 调用 afterFetchMessage 回调
+     * 4. 清理拉取锁
+     * @returns 成功推入的消息数量
+     */
     _pullMessage() {
         return __awaiter(this, void 0, void 0, function* () {
             debug('pull message by fetch message func');
@@ -203,8 +220,12 @@ class RedisMessage {
         });
     }
     /**
-     * 获取 messgae 数据
-     * @return {boolean} 是否成功 pull
+     * 拉取消息并推入 Redis 队列
+     * - 当队列为空时，同步拉取并返回 { successItems }
+     * - 当队列不为空时，异步拉取（延迟 1s）并立即返回 true
+     * - 获取锁失败时返回 false
+     * @param existedMQCount 当前队列中已有的消息数量
+     * @returns false | true | { successItems: number }
      */
     pullMessage(existedMQCount) {
         return __awaiter(this, void 0, void 0, function* () {
@@ -237,8 +258,8 @@ class RedisMessage {
         });
     }
     /**
-     * 获取单个消息
-     * @return {object} 消息  { messageId, data }
+     * 从队列左侧获取单个消息
+     * @returns 消息对象 { messageId, data, msgType }，队列为空时返回 null
      */
     getOneMessage() {
         return __awaiter(this, void 0, void 0, function* () {
@@ -247,6 +268,9 @@ class RedisMessage {
                 return null;
             }
             const data = yield this.redis.fetchMessageAndSetTime(messageId);
+            if (!data) {
+                return null;
+            }
             return {
                 messageId: messageId,
                 data: data.data,
@@ -255,9 +279,12 @@ class RedisMessage {
         });
     }
     /**
-     * 根据数量返回消息 list
-     * @param {integer} size 需要获得的消息数量
-     * @return {array}  返回消息的数组
+     * 批量获取消息
+     * 1. 检查队列数量，必要时触发拉取
+     * 2. 从 Redis 获取指定数量的消息
+     * 3. 顺序消费模式下记录已获取的 ID
+     * @param size 需要获取的消息数量
+     * @returns 消息数据数组
      */
     getMessages(size) {
         return __awaiter(this, void 0, void 0, function* () {
@@ -329,6 +356,14 @@ class RedisMessage {
             return list;
         });
     }
+    /**
+     * 确认普通消息的消费结果
+     * 支持单个/批量确认，支持成功/失败确认
+     * - 成功：清理消息的所有 Redis 数据
+     * - 失败：调用 _handleFailedMessage 进行重试或废弃
+     * @param messageIds 消息 ID（字符串/数组/ackItem 数组）
+     * @param allSuccess 默认的成功状态，默认 true
+     */
     ackNormalMessages(messageIds, allSuccess = true) {
         return __awaiter(this, void 0, void 0, function* () {
             if (typeof messageIds === 'string') {
@@ -397,7 +432,14 @@ class RedisMessage {
             return yield this.ackNormalMessages(messageIds, allSuccess);
         });
     }
-    // ======================= 检查脚本 ================================
+    // ======================= 异常检测与修复 ================================
+    /**
+     * 修复普通消费模式下的异常消息
+     * - missingList: 队列中缺失但 hash 中有记录的消息（time 被初始化为空字符串的场景）
+     * - timeoutList: 消费超时的消息
+     * @param missingList 缺失的消息 ID 列表
+     * @param timeoutList 超时的消息 ID 列表
+     */
     fixNormalMessage(missingList, timeoutList) {
         return __awaiter(this, void 0, void 0, function* () {
             for (const messageId of missingList) {
@@ -449,6 +491,12 @@ class RedisMessage {
             };
         });
     }
+    /**
+     * 修复顺序消费模式下的异常消息
+     * 额外处理：过滤非本次请求的脏数据
+     * @param missingList 缺失的消息 ID 列表
+     * @param timeoutList 超时的消息 ID 列表
+     */
     fixOrderMessage(missingList, timeoutList) {
         return __awaiter(this, void 0, void 0, function* () {
             const ids = yield this.redis.getSelectedIds();
@@ -504,8 +552,12 @@ class RedisMessage {
         });
     }
     /**
-     * 1. 检查消息是否有异常
-     * 2. 检查消息消费是否超时
+     * 检查并修复异常消息
+     * 1. 获取检查锁（防止并发修复）
+     * 2. 对比队列和 hash 表，找出缺失和超时的消息
+     * 3. 根据消费模式调用对应的修复方法
+     * @param sleepStatus 是否在执行修复前等待 1s（默认 true，给消费操作留出时间）
+     * @returns 修复结果或锁失败提示
      */
     checkExpireMessage(sleepStatus = true) {
         return __awaiter(this, void 0, void 0, function* () {
@@ -549,7 +601,8 @@ class RedisMessage {
     }
     // =============== 顺序消费接口 =======================
     /**
-     * 顺序消费
+     * 获取顺序消费的分布式锁
+     * @returns 是否获取成功
      */
     orderConsumeLock() {
         return __awaiter(this, void 0, void 0, function* () {
@@ -558,8 +611,8 @@ class RedisMessage {
         });
     }
     /**
-     * 对获取的数据的 id 进行保存
-     * @param ids 消费的 ids
+     * 保存本次顺序消费获取的消息 ID 列表
+     * @param items 消息对象数组
      */
     setOrderConsumeIds(items) {
         return __awaiter(this, void 0, void 0, function* () {
@@ -568,12 +621,21 @@ class RedisMessage {
             yield this.redis.initSelectedIds(ids);
         });
     }
+    /**
+     * 清理顺序消费相关的锁和数据
+     */
     cleanOrderConsume() {
         return __awaiter(this, void 0, void 0, function* () {
             debug('清理顺序消费相关的 lock');
             yield this.redis.cleanOrderConsumer();
         });
     }
+    /**
+     * 确认顺序消费的消息
+     * - successAll=true: 批量清理所有已消费的消息
+     * - successAll=false: 将所有消息作为失败重新推入队列
+     * @param successAll 是否全部成功
+     */
     ackOrderMessages(successAll) {
         return __awaiter(this, void 0, void 0, function* () {
             debug('ack order message');
@@ -582,7 +644,7 @@ class RedisMessage {
             if (successAll) {
                 try {
                     // 事务，要死一起死，要是没处理成功统一 gg
-                    yield this.redis.cleanMuliMsg(ids);
+                    yield this.redis.cleanMultiMsg(ids);
                 }
                 catch (err) {
                     yield this.checkExpireMessage(); // 失败就调用修复服务
@@ -615,10 +677,18 @@ class RedisMessage {
             yield this.cleanOrderConsume();
         });
     }
+    /**
+     * 查询当前是否处于顺序消费模式
+     * @returns 是否为顺序消费模式
+     */
     isOrderConsumption() {
         return this.options.orderConsumption;
     }
     // ========== 管理接口 =============
+    /**
+     * 获取待消费的消息列表（管理接口）
+     * @returns 待消费消息的数量和 messageId 列表
+     */
     __messageUnconsumed() {
         return __awaiter(this, void 0, void 0, function* () {
             const length = yield this.redis.messageCount();
@@ -632,6 +702,10 @@ class RedisMessage {
             };
         });
     }
+    /**
+     * 获取正在消费中的消息映射（管理接口）
+     * @returns 消费中的消息 ID 到时间戳的映射
+     */
     __messageConsuming() {
         return __awaiter(this, void 0, void 0, function* () {
             const map = yield this.redis.getTimeMap();

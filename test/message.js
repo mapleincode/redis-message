@@ -1,3 +1,8 @@
+/**
+ * RedisMessage 消息队列测试
+ * 测试普通消费模式下的消息拉取、消费确认、失败重试等功能
+ */
+
 const should = require('should');
 const ioredis = require('ioredis');
 const RedisMessage = require('../index').RedisMessage;
@@ -258,7 +263,8 @@ describe('redis message', function () {
     });
 
     it('ack message timeout', async function () {
-        // 超时没法测试啊!
+        // TODO: 超时测试需要等待 maxAckTimeout 时间，耗时较长，暂时跳过
+        this.skip();
     });
 
     it('ack message multi with not fetch message', async function () {

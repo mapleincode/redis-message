@@ -1,3 +1,8 @@
+/**
+ * 顺序消费模式测试
+ * 测试顺序消费模式下的消息获取、确认、异常检测等功能
+ */
+
 const should = require('should');
 const ioredis = require('ioredis');
 const RedisMessage = require('../index').RedisMessage;
@@ -199,17 +204,20 @@ describe('order consume', function() {
     });
 
     it('check with no ack', async function() {
-        it('check without error', async function() {
-            fetchMessageLengthLimit = 4;
-            let datas = await redisMessage.getMessages(1);
-    
-            datas.should.be.an.Array();
-            datas.should.have.length(1);
-    
-            const { missingList, timeoutList } = await redisMessage.checkExpireMessage(false);
-            missingList.length.should.equal(0);
-            timeoutList.length.should.equal(0);
-        });
+        fetchMessageLengthLimit = 4;
+        let datas = await redisMessage.getMessages(1);
+
+        datas.should.be.an.Array();
+        datas.should.have.length(1);
+
+        // 不执行 ack，直接检查异常消息
+        const { missingList, timeoutList } = await redisMessage.checkExpireMessage(false);
+        // 因为刚获取消息，未超时，所以 missingList 和 timeoutList 应为空
+        missingList.length.should.equal(0);
+        timeoutList.length.should.equal(0);
+
+        // 清理：执行 ack 以释放顺序消费锁
+        await redisMessage.ackMessages(true);
     });
     
 });

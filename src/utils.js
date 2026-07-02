@@ -1,4 +1,7 @@
 "use strict";
+/**
+ * 工具函数模块
+ */
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -9,21 +12,23 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.sleep = exports.now = void 0;
+/**
+ * 获取当前时间的 Unix 时间戳（秒级）
+ * @returns 当前时间的秒级时间戳
+ */
 function now() {
-    const now = new Date().getTime() / 1000;
-    return parseInt(now.toString());
+    return Math.floor(Date.now() / 1000);
 }
 exports.now = now;
 /**
- * sleep
- * @param second 时间
+ * 异步等待指定时间
+ * @param ms 等待的毫秒数
  */
-function sleep(second) {
+function sleep(ms) {
     return __awaiter(this, void 0, void 0, function* () {
         return new Promise(function (resolve) {
-            setTimeout(() => {
-                resolve();
-            }, second);
+            setTimeout(resolve, ms);
         });
     });
 }
